@@ -52,11 +52,16 @@ add/edit/duplicate/delete editors are real. The guarded writer preserves
 comments, validates before saving, keeps a `.bak`, and refuses to overwrite an
 external edit.
 
-Remote I/O is not done: every app is served by an in-memory provider, which is
-why the header shows a `demo` chip.
+SSH is live: agent, key, and keyring-password auth; known_hosts verification;
+one pooled connection per host; systemd, docker, compose, pm2, and command
+providers; `d` twice runs the app's pipeline with rollback. `--demo` keeps the
+in-memory provider for trying the UI without servers.
 
-**Next:** M2 SSH core, M2b host scan, M3 providers, M5 deploy engine. Release
-scaffolding (GoReleaser, CI, tap workflow) is already in place.
+Known hosts must exist (`ssh host` once) — wmdep refuses unknown keys. Store a
+password with `wmdep auth set <host>`.
+
+**Next:** M2b host scan UI, M6 SFTP browser/settings, run history, streaming
+deploy output. Release scaffolding (GoReleaser, CI, tap workflow) is in place.
 
 ## Navigation
 

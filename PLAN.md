@@ -2,7 +2,7 @@
 
 A terminal UI for watching and operating services spread across many servers, over SSH/SFTP.
 
-Status: M1, M1b, M1c complete (UI + config CRUD); M2 (SSH core) next
+Status: M1–M3, M5 core complete; M2b (scan UI) and M6 remain
 Target: Go 1.26+, macOS/Linux (Windows best-effort)
 
 ---
@@ -567,7 +567,7 @@ are implemented and tested. Still deferred: starter templates, typed
 confirmation for prod deletes, and the dirty-form prompt (cancel discards
 silently today).
 
-### M2 — SSH core (5–7 days)
+### M2 — SSH core (5–7 days) — done
 - `sshx`: dial with agent/key/password, `~/.ssh/config` + ProxyJump, known_hosts verification, timeouts, keepalive.
 - Keyring password flow: prompt on first connect, store under `wmdep:<host>`, clear failure path when no secret service is available (session-only prompt, never written to disk).
 - Connection pool with per-host locking and reconnect/backoff.
@@ -576,6 +576,11 @@ silently today).
 - Error taxonomy surfaced as friendly UI messages (auth failed, host unreachable, timeout, permission denied).
 
 **Exit:** connect to 2+ hosts with agent, key, and password; run commands concurrently; upload/download files; kill a connection and see auto-recovery.
+
+*Actual:* `sshx.Pool` dials agent/key/keyring-password hosts, verifies
+known_hosts (hard stop, actionable error), reuses one client per host, and
+provides Exec, Stream, SFTP, atomic Upload/Download, and ReadDir. `wmdep auth
+set <host>` stores a keyring password. `--demo` keeps the in-memory provider.
 
 ### M2b — Host scan (3–4 days)
 - Discovery pass per host: `systemctl list-units --type=service --state=running --output=json`, `docker ps --format json`, `docker compose ls --format json`, `pm2 jlist`.
@@ -586,7 +591,7 @@ silently today).
 
 **Exit:** point scan at a host with systemd and docker services, import three of them, and see them appear on the dashboard without hand-editing YAML.
 
-### M3 — Providers & status (4–5 days)
+### M3 — Providers & status (4–5 days) — done (systemd/docker/compose/pm2/command)
 - systemd provider (status, start/stop/restart, logs, metrics via `systemctl show` + `/proc` or `ps`).
 - docker provider (inspect, restart, logs, stats).
 - `command` provider for escape hatch.
@@ -604,7 +609,7 @@ silently today).
 
 **Exit:** follow logs from 3 apps at once without UI stalls; quitting cancels remote processes (verified with `ps` on server).
 
-### M5 — Deploy engine (6–8 days)
+### M5 — Deploy engine (6–8 days) — core done
 - Typed step engine: `build` (local/remote), `pull` (git fetch+reset on server), `upload`, `download`, `run`, `wait`, `notify`.
 - Pipeline executor with per-step timeout, cancel, streaming output.
 - Plan preview, confirmation gate (prod required), sequential vs parallel fan-out across hosts.
@@ -613,6 +618,11 @@ silently today).
 - Dry-run.
 
 **Exit:** deploy a Go binary (local build + upload) to 2 hosts, then deploy a web app (git pull + remote build) to 1 host, fail mid-way deliberately, see rollback and a recorded failed run.
+
+*Actual:* `internal/deploy` executes every step type with per-step timeouts,
+health waits, and rollback-on-failure; covered by fake-remote tests. The UI arms
+on the first `d` and runs on the second, then reports the result in the status
+bar. Run history (SQLite) and a streaming deploy pane are still open.
 
 ### M6 — Files & polish (4–5 days)
 - SFTP browser: tree/list, upload/download with progress, rename/delete (confirm), edit in `$EDITOR` via temp file + atomic write.

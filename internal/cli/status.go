@@ -28,7 +28,8 @@ func newStatusCmd(o *opts) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			reg := newRegistry(bundle, o)
+			reg, _, closeReg := newRegistry(bundle, o)
+			defer closeReg()
 
 			env, host := "", ""
 			targets := watch.Build(bundle.Apps, bundle.Hosts, env, host, "")

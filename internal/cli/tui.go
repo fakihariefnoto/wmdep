@@ -1,14 +1,20 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/fakihariefnoto/wmdep/internal/app"
 	"github.com/fakihariefnoto/wmdep/internal/config"
+	"github.com/fakihariefnoto/wmdep/internal/deploy"
 	"github.com/fakihariefnoto/wmdep/internal/provider"
+	"github.com/fakihariefnoto/wmdep/internal/provider/sshprov"
+	"github.com/fakihariefnoto/wmdep/internal/sshx"
 	"github.com/fakihariefnoto/wmdep/internal/ui"
 )
 
@@ -43,14 +49,18 @@ func loadBundle(o *opts) (*config.Bundle, error) {
 	return b, nil
 }
 
-// newRegistry builds the provider registry. M1 always uses the in-memory
-// provider; M2 registers the SSH-backed providers here and keeps this switch as
-// the --demo path.
-func newRegistry(b *config.Bundle, o *opts) *provider.Registry {
+// newRegistry builds the provider registry: SSH-backed by default, the
+// in-memory fake with --demo. The returned close func tears down connections.
+func newRegistry(b *config.Bundle, o *opts) (*provider.Registry, *sshx.Pool, func()) {
 	reg := provider.NewRegistry()
-	_ = o.demo
-	reg.RegisterAll(provider.NewFake(offlineHosts(b)...))
-	return reg
+	if o.demo {
+		reg.RegisterAll(provider.NewFake())
+		return reg, nil, func() {}
+	}
+
+	pool := sshx.NewPool(sshx.Options{Timeout: b.Defaults().SSHTimeout.Std()})
+	sshprov.Register(reg, pool)
+	return reg, pool, func() { _ = pool.Close() }
 }
 
 // offlineHosts is empty in normal runs. It exists so the demo provider can be
@@ -63,10 +73,14 @@ func runTUI(cmd *cobra.Command, o *opts) error {
 		return err
 	}
 
-	model := ui.New(bundle, newRegistry(bundle, o))
-	// M1 only ships the in-memory provider, so every run is a demo run. M2
-	// clears this once the SSH providers are registered.
-	model.Demo = true
+	reg, pool, closeReg := newRegistry(bundle, o)
+	defer closeReg()
+
+	model := ui.New(bundle, reg)
+	model.Demo = o.demo
+	if pool != nil {
+		model.Deployer = newDeployer(pool, reg)
+	}
 	ui.Version = Version
 
 	switch {
@@ -83,4 +97,49 @@ func runTUI(cmd *cobra.Command, o *opts) error {
 	p := tea.NewProgram(model, tea.WithContext(cmd.Context()))
 	_, err = p.Run()
 	return err
+}
+
+// deployer runs pipelines with the real SSH pool and the provider registry's
+// health probes.
+type deployer struct{ opts deploy.Options }
+
+func newDeployer(pool *sshx.Pool, reg *provider.Registry) deployer {
+	return deployer{opts: deploy.Options{
+		Remote: pool,
+		Local:  deploy.LocalExec{},
+		Health: func(ctx context.Context, a app.App, h app.Host) error {
+			prov, err := reg.For(a)
+			if err != nil {
+				return err
+			}
+			st, err := prov.Status(ctx, a, h)
+			if err != nil {
+				return err
+			}
+			if st.Err != nil {
+				return st.Err
+			}
+			if st.State != app.StateRunning {
+				return fmt.Errorf("state %s", st.State)
+			}
+			return nil
+		},
+	}}
+}
+
+// Deploy implements ui.Deployer.
+func (d deployer) Deploy(ctx context.Context, a app.App, h app.Host, p config.Pipeline) (bool, string, error) {
+	res := d.opts.Run(ctx, p, a, h)
+	var b strings.Builder
+	for _, s := range res.Steps {
+		status := "ok"
+		if !s.OK {
+			status = "failed"
+		}
+		fmt.Fprintf(&b, "%-8s %s\n", s.Kind, status)
+		if s.Output != "" {
+			b.WriteString(s.Output)
+		}
+	}
+	return res.OK, b.String(), res.Err
 }

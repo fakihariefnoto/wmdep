@@ -133,6 +133,11 @@ type Model struct {
 	// header shows so nobody mistakes fake numbers for production.
 	Demo bool
 
+	// Deployer is set by the CLI when a real SSH pool exists.
+	Deployer Deployer
+	// pendingDeploy arms the two-press deploy confirmation.
+	pendingDeploy string
+
 	logReader *bufio.Reader
 	logCancel context.CancelFunc
 }
@@ -294,6 +299,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, nil
 
+	case deployDoneMsg:
+		m.setFlash(deploySummary(msg))
+		return m, m.refresh()
+
 	case actionDoneMsg:
 		if msg.err != nil {
 			m.setFlash(msg.name + " failed: " + msg.err.Error())
@@ -423,8 +432,10 @@ func (m *Model) handleManageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keys.Up):
 			m.table.move(-1)
+			m.pendingDeploy = ""
 		case key.Matches(msg, m.keys.Down):
 			m.table.move(1)
+			m.pendingDeploy = ""
 		case key.Matches(msg, m.keys.Top):
 			m.table.toTop()
 		case key.Matches(msg, m.keys.Bottom):
@@ -433,8 +444,7 @@ func (m *Model) handleManageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.focus = focusLogs
 			return m, nil
 		case key.Matches(msg, m.keys.Deploy):
-			m.setFlash("deploy runs in M5 — `wmdep config validate` already checks these pipelines")
-			return m, nil
+			return m, m.startDeploy()
 		case key.Matches(msg, m.keys.Restart):
 			return m, m.action("restart")
 		case key.Matches(msg, m.keys.Stop):

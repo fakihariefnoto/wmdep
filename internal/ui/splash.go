@@ -71,22 +71,40 @@ func (m *Model) splashView() string {
 		}
 	}
 
-	footer := th.faint.Render("↑/k ↓/j move · enter open · ? help · q quit") +
-		strings.Repeat(" ", 10) + th.faint.Render("v"+Version)
+	version := Version
+	if version == "" || version == "dev" {
+		version = "dev"
+	} else {
+		version = "v" + version
+	}
 
 	lines := append([]string{}, art...)
-	lines = append(lines, "", "  "+th.dim.Render("watch my deployment  ·  services across many servers, over SSH"), "")
-	for _, item := range menu {
-		lines = append(lines, "  "+item)
-	}
-	lines = append(lines, "", "  "+footer)
+	lines = append(lines, "", th.dim.Render("watch my deployment  ·  services across many servers, over SSH"), "")
+	lines = append(lines, menu...)
+
+	// The footer is a single line with the version pinned to the same right
+	// edge as the block, so the two halves never drift apart.
+	keys := th.faint.Render("↑/k ↓/j move · enter open · ? help · q quit")
+	padW := max(0, blockWidth(lines)-lipglossWidth(keys)-lipglossWidth(th.faint.Render(version))-2)
+	lines = append(lines, "", keys+strings.Repeat(" ", padW+2)+th.faint.Render(version))
 
 	return renderCenteredBlock(m.width, m.height, lines)
 }
 
+// blockWidth is the widest line, so callers can right-align a footer.
+func blockWidth(lines []string) int {
+	w := 0
+	for _, l := range lines {
+		if n := lipglossWidth(l); n > w {
+			w = n
+		}
+	}
+	return w
+}
+
 // renderCenteredBlock left-aligns the lines against each other, pads them to a
 // common width, and centers that block. Centering line by line would ragged the
-// menu.
+// menu; keeping every line flush left aligns the wordmark, tagline, and menu.
 func renderCenteredBlock(w, h int, lines []string) string {
 	blockW := 0
 	for _, l := range lines {
