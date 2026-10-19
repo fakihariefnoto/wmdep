@@ -2,7 +2,7 @@
 
 A terminal UI for watching and operating services spread across many servers, over SSH/SFTP.
 
-Status: M1 complete (skeleton); M2 (SSH core) next
+Status: M1 complete (skeleton); M1b (splash, dashboard, screen router) next
 Target: Go 1.26+, macOS/Linux (Windows best-effort)
 
 ---
@@ -34,50 +34,146 @@ Deployments are rarely one app on one box. Typical reality:
 | **Deploy** | A named pipeline (build → upload → activate → verify) targeting one app or a group |
 | **Run** | One execution of a deploy or command, recorded with output and result |
 
-### Primary view (shipped in M1)
+### Navigation model
 
-Three panes plus a log tail, no tabs yet:
+Four layers, each with one job:
 
 ```
-┌ hosts ──────────┬ apps · prod ─────────────────────────┬ detail ─────────────┐
-│ ✕ ▾ prod     3  │ APP      HOST     STATE      UP      │ api                 │
-│ ●   web-1    2  │ api      web-1    ▲ degraded -       │ prod · web-1 · systemd│
-│ ✕   web-2    1  │ worker   web-1    ● running  2h10m   │ target api.service  │
-│ ? ▾ staging  1  │ redis    web-2    ● running  3h04m   │ deploy api-prod     │
-│ ?   stage-1  1  │                                     │ health http …       │
-├─────────────────┴─────────────────────────────────────┴─────────────────────┤
-│ logs · prod/web-1/api · following                                           │
-│ 18:22:01 INFO  request handled path=/api/7 status=200 dur=31ms              │
-│ 18:22:03 ERROR upstream redis timeout after 2s                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ pane: hosts   tab next pane • ↑/k up • ↓/j down • d deploy • r restart …    │
-└─────────────────────────────────────────────────────────────────────────────┘
+splash ──enter──▶ dashboard ──enter(card)──▶ manage ──esc──▶ dashboard
+   │                 │  a / e / x                  ▲
+   │                 └──▶ editor / confirm ────────┘
+   └── q ─────────────────────────────────────────▶ quit
 ```
 
-Planned views (not built yet): **Deploys** history (M5) and **Settings** (M6).
-The Files browser is a focused mode (M6), not a tab.
+1. **Splash / menu** — what wmdep is, and the five things you can do.
+2. **Dashboard** — cards: fleet health, environments, hosts, attention list.
+3. **Manage** — the three-pane workspace, scoped to the card that was chosen.
+4. **Editors** — add/edit a deployment, scan a host, settings.
 
-### Key interactions
+`?` opens help on every screen; `esc` always goes back one level (closing the
+help overlay first, then cancelling a dirty editor, then leaving the screen).
 
-Shipped in M1 (and documented in README):
+### 1. Splash / menu
 
-| Key | Action |
+Shown on launch. ASCII wordmark, one-line purpose, menu with a description of the
+highlighted item, version footer. `wmdep --no-splash` (or `ui.splash: false`)
+skips it; `wmdep --screen dashboard` starts there directly for scripts and tests.
+
+```
+  ██╗    ██╗ ███╗   ███╗ ██████╗  ███████╗ ██████╗
+  ██║    ██║ ████╗ ████║ ██╔══██╗ ██╔════╝ ██╔══██╗
+  ██║ █╗ ██║ ██╔████╔██║ ██║  ██║ █████╗   ██████╔╝
+  ██║███╗██║ ██║╚██╔╝██║ ██║  ██║ ██╔══╝   ██╔═══╝
+  ╚███╔███╔╝ ██║ ╚═╝ ██║ ██████╔╝ ███████╗ ██║
+   ╚══╝╚══╝  ╚═╝     ╚═╝ ╚═════╝  ╚══════╝ ╚═╝
+
+  watch my deployment · services across many servers, over SSH
+
+  ▸ Dashboard      fleet at a glance
+    Deployments    add, edit, delete services
+    Servers        host inventory
+    Scan           discover services on a host
+    Settings       defaults, paths, keybindings
+    Quit
+
+  ↑/k ↓/j move · enter open · ? help · q quit            v0.1.0
+```
+
+The wordmark lives in `internal/ui/splash.go` as a constant; a test asserts it
+fits 60 columns so it never wraps on an 80-column terminal.
+
+### 2. Dashboard (cards)
+
+Responsive grid: one column below 90 columns, two below 140, three above. Cards
+are the unit of navigation — `enter` opens Manage scoped to that card.
+
+```
+ wmdep  dashboard                                    prod,staging · 3 hosts   ? help
+ ╭ fleet ────────────╮ ╭ prod ─────────────────╮ ╭ staging ──────────────╮
+ │ 7 deployments     │ │ web-1   2 up          │ │ stage-1   1 up        │
+ │ ● 5 up  ✕ 1 down  │ │ web-2   1 down        │ │ 1 deployment          │
+ │ 3 hosts · 1 down  │ │ 4 deployments        │ │ ● healthy             │
+ ╰───────────────────╯ ╰───────────────────────╯ ╰───────────────────────╯
+ ╭ attention ──────────────────────────────────────────────────────────────╮
+ │ ✕ redis @ web-2   failed       dial tcp 10.0.0.12: connection refused   │
+ │ ▲ api   @ web-1   degraded     health check failing                     │
+ ╰─────────────────────────────────────────────────────────────────────────╯
+ a add · e edit · x delete · s scan · / filter · enter open · esc back · ? help
+```
+
+Cards:
+
+| Card | Content | `enter` opens |
+|---|---|---|
+| Fleet | up/down/failed counts, host reachability | Manage, unfiltered |
+| Environment (one per env) | host count, deployment count, worst state | Manage filtered to env |
+| Host (one per host) | address, deployment count, reachability, last poll | Manage filtered to host |
+| Attention | every degraded/failed deployment plus its reason | Manage focused on that app |
+| Activity (M5) | last deploys/runs with result | run output |
+
+The dashboard reuses the same poller as Manage, but only polls deployments whose
+cards are visible, so a large fleet does not poll everything.
+
+### 3. Manage (existing workspace)
+
+The M1 three-pane view, now scoped: the header shows a breadcrumb
+(`dashboard › prod › web-1`), `esc` returns to the dashboard, and the tree only
+contains the scoped environment/host. All M1 keys keep working.
+
+### 4. Deployment editor
+
+Add (`a`) and edit (`e`) share one form. Fields are driven by the provider kind:
+systemd shows `unit`, docker shows `container`, compose shows `project` +
+`service`, pm2 shows `process`, command shows `command`.
+
+```
+ ╭ new deployment ──────────────────────────────────────────────╮
+ │ id        [api                    ]                          │
+ │ env       [prod ▾]                                           │
+ │ host      [web-1 ▾]                                          │
+ │ provider  [systemd ▾]                                        │
+ │ unit      [api.service           ]                           │
+ │ workdir   [/srv/api               ]                          │
+ │ health    [http ▾] [http://127.0.0.1:8080/health] [200]      │
+ │ pipeline  [api-prod ▾]  (none)                               │
+ │ tags      [web, api               ]                          │
+ │                                                              │
+ │ ctrl+s save · tab next field · esc cancel                    │
+ ╰──────────────────────────────────────────────────────────────╯
+```
+
+- Validation reuses the loader's rules; errors appear under the field and block
+  save, so an invalid file can never be written.
+- Save writes the environment file, then reloads the bundle in place.
+- Delete (`x`) removes the entry after a confirmation that shows the exact file
+  and YAML path. Prod deletion additionally requires typing the app id.
+- Unsaved changes prompt before `esc` discards them.
+
+### 5. Scan a host
+
+wmdep can discover what actually runs on a server instead of asking you to type
+unit names.
+
+1. Pick a host (from the dashboard or `s`).
+2. Connect over SSH (M2) and run one discovery pass:
+   `systemctl list-units --type=service --state=running --output=json`,
+   `docker ps --format json`, `docker compose ls --format json`, `pm2 jlist`.
+3. Show a checklist; items already managed on that host are marked and disabled.
+4. Import the selected items as deployments into a chosen environment.
+
+Scan is read-only until the import step, and the import goes through the same
+validated writer as the editor. It arrives in M2b, after the SSH core.
+
+### Keys by screen
+
+| Screen | Keys |
 |---|---|
-| `tab` / `shift+tab` | next / previous pane |
-| `↑↓` `k`/`j` | move |
-| `←→` `h`/`l` | collapse / expand environment |
-| `enter` / `space` | select; in the tree toggles an environment, in the table jumps to logs |
-| `g` / `G` | top / bottom |
-| `/` | filter by id, host, env, provider, or target; `esc` clears |
-| `R` | poll now |
-| `r` / `x` | restart / start-stop |
-| `L` / `f` / `c` | focus logs / toggle follow / clear |
-| `d` | deploy preview (wired, execution lands in M5) |
-| `F` | SFTP browser (wired, lands in M6) |
-| `?` / `q` | help / quit |
+| Splash | `↑↓`/`jk` move, `enter` open, `q` quit |
+| Dashboard | `tab`/arrows between cards, `enter` open, `a` add, `e` edit, `x` delete, `s` scan, `/` filter, `r` refresh, `?` help |
+| Manage | the M1 keys (see README): panes, restart, start/stop, logs, deploy |
+| Editor | `tab` next field, `enter` open select, `ctrl+s` save, `esc` cancel |
+| Scan | `space` toggle, `a` all, `n` none, `enter` import, `esc` back |
 
-Planned extras: `y` copy selected log line, `:` command palette
-(`deploy api to web-2`), and a global `host:`/`app:`/`env:` filter syntax (M6).
 Headless equivalents today: `wmdep status`; `wmdep logs` and `wmdep deploy` follow
 in M4/M5.
 
@@ -117,7 +213,9 @@ internal/
   cli/           TUI wiring, status, config validate|init|show, version
   provider/      Provider interface, registry, fake (M1); systemd|docker|compose|pm2|command (M3)
   watch/         polling scheduler, jitter, backoff, filtering
-  ui/            root model, panes, theme, keymap
+  ui/            router (splash → dashboard → manage), theme, keymap
+  ui/screens/    (M1b) splash, dashboard, manage, editor, scan, settings
+  config/        ... plus write.go (M1c): comment-preserving YAML writer
   sshx/          (M2) dial, auth, pool, keepalive, known_hosts, jump hosts
   sftp/          (M2) file ops, streaming transfer, atomic writes
   deploy/        (M5) pipeline engine, steps, hooks, rollback
@@ -249,6 +347,25 @@ pipelines:
 
 Step types (v1): `build` (local or remote), `pull` (git on server), `upload` (SFTP), `download`, `run` (remote command), `wait` (health/sleep), `notify`. Both deploy models are first-class; a pipeline mixes them freely.
 
+### Writing config (M1c)
+
+The UI is no longer read-only. All mutations go through `config.Writer`:
+
+- It loads the file as a `yaml.Node`, mutates the target sequence entry, and
+  marshals the node back — key order and comments survive.
+- Before writing it runs the full loader validation on the resulting directory.
+  A save that would produce an invalid config is refused.
+- Write is atomic: temp file in the same directory, fsync, rename, keep `.bak`.
+- A `(mtime, size, hash)` stamp is recorded at load; if the file changed on disk
+  before save, the save aborts with "changed on disk" rather than clobbering.
+- A lock file (`config.yaml.lock`) prevents two wmdep instances writing at once.
+- After a successful save the bundle is reloaded in place; the dashboard and
+  manage screens refresh without restarting.
+
+Mutations supported: add deployment, edit deployment, delete deployment, add
+host, import scanned deployments. Host edits reuse the same writer against
+`hosts.yaml`.
+
 ### SQLite schema (initial)
 
 ```sql
@@ -287,6 +404,15 @@ Retention: samples downsampled after 24h, pruned after 7d (configurable).
 9. **TUI and headless share one core.** The UI calls the same service layer as `wmdep deploy`; no logic in views.
 10. **Graceful degradation.** A dead host shows an error badge and retries; it never blocks the rest of the UI.
 11. **Deploy step kinds are typed.** `pull`, `build`, `upload`, `download`, `run`, `wait`, `notify` are distinct types with their own validation and timeouts; `run` and `build.cmd` still carry a shell command because that is the operator's escape hatch. Local-build-and-upload and server-side-git-pull coexist in the same pipeline language.
+12. **Writes are guarded, not free-form.** The editor and scanner never emit a
+    hand-built YAML string. They edit the existing `yaml.Node` tree (comments and
+    ordering survive), validate the result, write to a temp file, fsync, rename,
+    and keep a `.bak`. A load/save race (file changed on disk since it was read)
+    aborts the save instead of clobbering someone's edit.
+13. **Screens are sub-models, not flags.** The root model is a router: each screen
+    has its own `Init/Update/View` and receives the shared services (bundle,
+    registry, poller, store). That keeps the splash/dashboard from growing
+    conditionals in the existing management view.
 
 ---
 
@@ -323,6 +449,25 @@ forward because the fake provider made them cheap to exercise. The stock
 `bubbles/table` could not clip columns, so the table rebuilds its column plan
 whenever the pane resizes.
 
+### M1b — Navigation shell & dashboard (3–4 days) — next
+- Screen router: a stack of sub-models (`splash`, `dashboard`, `manage`, `editor`, `scan`), shared services injected once, `esc` popping correctly (help first, then dirty guards).
+- Splash: ASCII wordmark, purpose line, menu with per-item description, version footer; `--no-splash`, `--screen`, `ui.splash`.
+- Dashboard: responsive card grid (1/2/3 columns), fleet/env/host/attention cards, card focus with arrows/tab, `enter` to open Manage scoped to the card, `a/e/x/s` shortcuts.
+- Manage: accept a scope (env/host/app), breadcrumb in the header, `esc` back to the dashboard.
+- Visibility-aware polling for the dashboard (only cards on screen).
+- Tests: transitions and back-stack, splash fits 60 columns, card grid at 80/120/160 columns, scope filtering.
+
+**Exit:** launch → splash → dashboard → pick a host card → manage filtered to that host → `esc` back, with no state loss.
+
+### M1c — Config writer & deployment editor (4–5 days)
+- `config.Writer`: edit the existing `yaml.Node` tree (comments and key order preserved), validate the whole bundle, atomic temp+fsync+rename, `.bak`, file lock, and an mtime/hash guard that aborts a save if the file changed since load.
+- Deployment form: add and edit share one model; fields vary by provider (systemd unit, docker container, compose project/service, pm2 process, command); inline errors from the loader's rules; `ctrl+s` saves and reloads the bundle in place.
+- Delete with confirmation showing file + YAML path; prod requires typing the deployment id.
+- Dirty-editor guard on `esc`.
+- Tests: round-trip preserves comments/ordering; add/edit/delete; invalid edits are refused; concurrent external edit aborts the save.
+
+**Exit:** add a deployment from the dashboard, edit it, delete it, and confirm `wmdep config validate` still passes and the file diff contains only the intended change.
+
 ### M2 — SSH core (5–7 days)
 - `sshx`: dial with agent/key/password, `~/.ssh/config` + ProxyJump, known_hosts verification, timeouts, keepalive.
 - Keyring password flow: prompt on first connect, store under `wmdep:<host>`, clear failure path when no secret service is available (session-only prompt, never written to disk).
@@ -332,6 +477,15 @@ whenever the pane resizes.
 - Error taxonomy surfaced as friendly UI messages (auth failed, host unreachable, timeout, permission denied).
 
 **Exit:** connect to 2+ hosts with agent, key, and password; run commands concurrently; upload/download files; kill a connection and see auto-recovery.
+
+### M2b — Host scan (3–4 days)
+- Discovery pass per host: `systemctl list-units --type=service --state=running --output=json`, `docker ps --format json`, `docker compose ls --format json`, `pm2 jlist`.
+- Checklist screen: discovered items, already-managed items marked and disabled, `space`/`a`/`n` selection, environment picker.
+- Import selected items through `config.Writer`; id collisions get a stable suffix (`redis`, `redis-2`).
+- Read-only until import; no remote writes during discovery.
+- Tests: discovery parsing against golden outputs, dedupe against existing deployments, import produces a valid config.
+
+**Exit:** point scan at a host with systemd and docker services, import three of them, and see them appear on the dashboard without hand-editing YAML.
 
 ### M3 — Providers & status (4–5 days)
 - systemd provider (status, start/stop/restart, logs, metrics via `systemctl show` + `/proc` or `ps`).
@@ -381,7 +535,8 @@ whenever the pane resizes.
 
 **Exit:** tagged v0.1.0, installable via `brew install`, docs cover every provider and step type.
 
-Total: roughly **7–9 weeks** part-time, **4–5 weeks** full-time.
+Total: roughly **9–11 weeks** part-time, **5–6 weeks** full-time (M1b/M1c add
+about two weeks before SSH; M2b adds scan afterwards).
 
 ---
 
@@ -399,6 +554,10 @@ Total: roughly **7–9 weeks** part-time, **4–5 weeks** full-time.
 | Host key changes | MITM vs annoyance | Hard fail + instructions to update known_hosts; no auto-accept |
 | Multi-file config gets out of sync | Broken refs at runtime | Cross-reference validation with file:line, `config validate` in CI |
 | Remote build failures pollute server | Half-built artifacts live on prod | Build in a temp/staging dir, atomic promote, `.prev` backup, rollback step |
+| Config writer corrupts hand-authored YAML | Lost comments, reformatted files, broken config | Node-level edits only, validate before write, atomic rename, `.bak`, mtime guard, round-trip tests |
+| Editor writes a config that fails validation | wmdep refuses to start | Save validates the whole bundle; on failure the editor stays open and the file is untouched |
+| Scan imports duplicates or wrong units | Dashboard noise, acting on the wrong service | Dedupe against managed deployments, mark disabled rows, suffix id collisions, import is explicit |
+| Dashboard polling a large fleet | CPU and SSH churn | Only poll deployments behind visible cards; reuse jitter/backoff; collapsed cards stop polling |
 
 ---
 
@@ -417,6 +576,9 @@ Total: roughly **7–9 weeks** part-time, **4–5 weeks** full-time.
 ## 8. v0.1 scope (cut line)
 
 In:
+- splash/menu + dashboard card grid + scoped management view
+- add/edit/delete deployments from the UI (validated, comment-preserving YAML writer)
+- host scan: discover systemd/docker/compose/pm2 services and import them
 - systemd + docker providers (`command` escape hatch included)
 - agent/key/password auth (keyring), known_hosts verification
 - per-environment config files + shared hosts/pipelines
@@ -437,8 +599,15 @@ Out (v0.2+):
 2. **Auth:** ssh-agent + key files + password via OS keyring. Keyring entry `wmdep:<host>`; no secret service = session-only prompt.
 3. **Config:** one file per environment, plus shared `hosts.yaml` and `pipelines.yaml`, cross-referenced by name and validated.
 4. **Scope:** remote builds are in v0.1 (as a step type), because the `pull` + `build` model depends on them.
-5. **Config writes:** wmdep is read-only. `wmdep config init` scaffolds starter files; after that the YAML is the operator's, hand-edited. No TUI add-host wizard in v0.1.
+5. **Config writes:** wmdep is no longer read-only. The deployment editor and the
+   host scanner write app entries back to the environment YAML through a
+   comment-preserving, validated, atomic writer (decision 12). `wmdep config init`
+   still scaffolds starter files; hand editing remains fully supported.
 6. **Deploy concurrency:** one deploy at a time per host, enforced by a per-host deploy lock. A second pipeline targeting a busy host is queued and shown as such.
+7. **Navigation:** splash → dashboard → manage, with the dashboard as the default
+   entry point after the splash. `--screen dashboard` skips the splash; `--screen
+   manage` preserves the old direct-to-workspace behaviour for scripts and muscle
+   memory.
 
 ---
 
@@ -547,6 +716,17 @@ Deviations from the original plan, and why:
 - **Tests are model-level, not `teatest`.** Driving `Update` directly and
   asserting on the rendered frame caught the real bugs (lipgloss sizing,
   column/cell mismatch) without a terminal emulator.
+
+Not built yet — the UX rework requested after M1:
+
+- Splash/menu, dashboard cards, and the screen router (M1b).
+- Add/edit/delete deployments and the guarded config writer (M1c).
+- Host scan and bulk import (M2b, after SSH).
+- The current binary still opens the manage screen directly; that behaviour stays
+  available via `--screen manage`.
+
+This also reverses the earlier "config is read-only" decision: CRUD is now in
+scope, with the writer safety rules in §4 decisions 12–13.
 
 Known gaps to close in M2/M3:
 

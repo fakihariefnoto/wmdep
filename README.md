@@ -46,6 +46,12 @@ pane: hosts     tab next pane • ↑/k up • ↓/j down • d deploy • r res
 watch scheduler are real. Remote I/O is not: every app is served by an in-memory
 provider, which is why the header shows a `demo` chip.
 
+**Next (M1b): navigation rework** — an ASCII splash/menu, then a dashboard of
+cards (fleet, environments, hosts, attention), then the existing three-pane view
+scoped to the card you pick. After that, M1c adds add/edit/delete of deployments
+with a guarded YAML writer, and M2b adds host scanning. Until M1b lands, `wmdep`
+opens the management view directly.
+
 | Area | State |
 |---|---|
 | Config: multi-file, cross-ref validation with `file:line` | done |
