@@ -49,25 +49,38 @@ func (m *Model) splashView() string {
 	th := m.th
 	items := splashItems()
 
+	// Logo: every row is padded to the same width, then the whole logo is
+	// centered on screen. Rows are never mixed with the menu in one block, so a
+	// wide footer cannot pull the art off-center.
 	art := make([]string, 0, len(wordmark))
+	logoW := 0
+	for _, l := range wordmark {
+		if n := lipglossWidth(strings.TrimRight(l, " ")); n > logoW {
+			logoW = n
+		}
+	}
 	gradient := []string{"#7D56F4", "#9557F0", "#B25AE8", "#D05CDF", "#EA5ED4", "#FF5FAF"}
-	if !m.th.dark {
+	if !th.dark {
 		gradient = []string{"#4B2FA8", "#6536B8", "#7C3EC4", "#9346CE", "#A94ED6", "#C2247A"}
 	}
 	for i, l := range wordmark {
-		c := gradient[min(i, len(gradient)-1)]
-		style := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(c))
-		art = append(art, style.Render(strings.TrimRight(l, " ")))
+		style := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(gradient[min(i, len(gradient)-1)]))
+		art = append(art, center(style.Render(strings.TrimRight(l, " ")), logoW))
 	}
 
 	menu := make([]string, 0, len(items))
+	menuW := 0
 	for i, it := range items {
 		name := pad(it.name, 13)
-		switch {
-		case i == m.splash.cursor:
-			menu = append(menu, th.selected.Render("▸ "+name)+th.dim.Render(it.desc))
-		default:
-			menu = append(menu, "  "+th.bold.Render(name)+th.dim.Render(it.desc))
+		var line string
+		if i == m.splash.cursor {
+			line = th.selected.Render("▸ "+name) + th.dim.Render(it.desc)
+		} else {
+			line = "  " + th.bold.Render(name) + th.dim.Render(it.desc)
+		}
+		menu = append(menu, line)
+		if n := lipglossWidth(line); n > menuW {
+			menuW = n
 		}
 	}
 
@@ -78,22 +91,31 @@ func (m *Model) splashView() string {
 		version = "v" + version
 	}
 
-	// Logo, then a centered title strip, then the one-line purpose. The strip
-	// is the visual anchor: everything below it is left-aligned with the logo.
-	lines := append([]string{}, art...)
-	lines = append(lines, "")
-	lines = append(lines, center(th.accent.Render("────  Watch My Deployment  ────"), 56))
-	lines = append(lines, center(th.dim.Render("services across many servers, over SSH and SFTP"), 56))
-	lines = append(lines, "")
-	lines = append(lines, menu...)
+	var out []string
+	for _, line := range art {
+		out = append(out, center(line, m.width))
+	}
+	out = append(out, "")
+	out = append(out, center(th.accent.Render("────  Watch My Deployment  ────"), m.width))
+	out = append(out, center(th.dim.Render("services across many servers, over SSH and SFTP"), m.width))
+	out = append(out, "")
 
-	// The footer is a single line with the version pinned to the same right
-	// edge as the block, so the two halves never drift apart.
-	keys := th.faint.Render("↑/k ↓/j move · enter open · ? help · q quit")
-	padW := max(0, blockWidth(lines)-lipglossWidth(keys)-lipglossWidth(th.faint.Render(version))-2)
-	lines = append(lines, "", keys+strings.Repeat(" ", padW+2)+th.faint.Render(version))
+	left := max(0, (m.width-menuW)/2)
+	for _, line := range menu {
+		out = append(out, strings.Repeat(" ", left)+line)
+	}
 
-	return renderCenteredBlock(m.width, m.height, lines)
+	out = append(out, "")
+	footer := th.faint.Render("↑/k ↓/j move · enter open · ? help · q quit")
+	gap := max(2, m.width-lipglossWidth(footer)-lipglossWidth(version)-2)
+	out = append(out, footer+strings.Repeat(" ", gap)+th.faint.Render(version))
+
+	// Each line is padded to the full terminal width so vertical centering
+	// never shifts a row horizontally.
+	for i, line := range out {
+		out[i] = padTo(line, m.width)
+	}
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Center, strings.Join(out, "\n"))
 }
 
 // center pads a line so its visible text is centered inside width.
@@ -103,6 +125,14 @@ func center(line string, width int) string {
 		return line
 	}
 	return strings.Repeat(" ", (width-n)/2) + line
+}
+
+// padTo right-pads an ANSI-styled line to width.
+func padTo(s string, width int) string {
+	if n := lipglossWidth(s); n < width {
+		return s + strings.Repeat(" ", width-n)
+	}
+	return s
 }
 
 // blockWidth is the widest line, so callers can right-align a footer.

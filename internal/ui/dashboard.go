@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image/color"
 	"sort"
 	"strings"
 
@@ -103,23 +104,19 @@ func (m *Model) dashboardView() string {
 	th := m.th
 	d := &m.dash
 
-	lines := []string{
-		m.dashHeader(),
-		"",
-		th.faint.Render(strings.ToUpper(d.scope.label())),
-		m.fleetCard(),
-	}
+	lines := []string{m.navBar(), m.fleetCard()}
 
 	if d.scope != scopeServers {
 		lines = append(lines, m.cardRows(cardEnv, true)...)
 	}
 	if d.scope != scopeDeployments {
-		lines = append(lines, "", th.faint.Render("HOSTS"))
+		lines = append(lines, th.faint.Render("HOSTS"))
 		lines = append(lines, m.cardRows(cardHost, false)...)
 	}
 
-	lines = append(lines, "", th.faint.Render("ATTENTION"))
 	lines = append(lines, m.attentionRows()...)
+	activity := m.activityRows()
+	lines = append(lines, m.card("recent runs", activity, m.width, len(activity)+3, false, lipgloss.Color("#1E3A2F")))
 
 	// Cards are multi-line blocks, so flatten before clipping: clip() operates
 	// on lines, and a block treated as a single line would be truncated at its
@@ -136,6 +133,65 @@ func flatten(lines []string) []string {
 		out = append(out, strings.Split(l, "\n")...)
 	}
 	return out
+}
+
+// navBar is the persistent wayfinder: it shows every top-level screen and
+// highlights the one being shown, so the dashboard is never a dead end.
+func (m *Model) navBar() string {
+	tabs := []struct {
+		name   string
+		screen screenKind
+	}{
+		{"Dashboard", screenDashboard},
+		{"Deployments", screenDeployments},
+		{"Servers", screenServers},
+		{"Scan", screenScan},
+		{"Settings", screenSettings},
+	}
+	active := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#12131A")).
+		Background(lipgloss.Color("#FF5FAF")).Padding(0, 1)
+	idle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8A8FA3")).
+		Background(lipgloss.Color("#22242E")).Padding(0, 1)
+
+	var parts []string
+	for _, t := range tabs {
+		if m.screen == t.screen {
+			parts = append(parts, active.Render(t.name))
+		} else {
+			parts = append(parts, idle.Render(t.name))
+		}
+	}
+	bar := lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+	hint := m.th.faint.Render("tab/←→ move · enter open")
+	gap := m.width - lipglossWidth(bar) - lipglossWidth(hint) - 1
+	if gap < 1 {
+		gap = 1
+	}
+	return bar + strings.Repeat(" ", gap) + hint
+}
+
+// card draws a panel with a tinted title bar. The background lives on the
+// header only: inner text styles reset backgrounds, so tinting the whole body
+// would produce patchy blocks on real terminals.
+func (m *Model) card(title string, lines []string, w, h int, focused bool, bg color.Color) string {
+	if w < 6 || h < 3 {
+		return ""
+	}
+	style, titleStyle := m.th.pane, m.th.paneTitle
+	if focused {
+		style, titleStyle = m.th.paneFocused, m.th.paneTitleHi
+	}
+	innerW, innerH := w-4, h-2
+
+	header := titleStyle.
+		Background(bg).
+		Width(innerW).
+		Render(title)
+
+	content := make([]string, 0, innerH)
+	content = append(content, header)
+	content = append(content, clip(lines, innerW, innerH-1)...)
+	return style.Width(w).Height(h).Render(strings.Join(content, "\n"))
 }
 
 func (m *Model) dashHeader() string {
@@ -351,7 +407,7 @@ func (m *Model) envCard(env string, w int, focused bool) string {
 		m.appChips(apps, w-4),
 		th.dim.Render("CPU "+pct(avg)) + "   " + th.dim.Render("MEM "+humanBytes(memSum)),
 	}
-	return m.box(env, lines, w, 7, focused)
+	return m.card(env, lines, w, 7, focused, lipgloss.Color("#1F3A5F"))
 }
 
 // appChips renders up to three app states on one line, with a +N remainder.
@@ -449,10 +505,9 @@ func (m *Model) hostCard(env, hostID string, w int, focused bool) string {
 	lines := []string{
 		th.dim.Render(h.Addr() + " · " + h.User),
 		line2,
-		th.dim.Render("CPU "+pct(avg)) + "   " + th.dim.Render("MEM "+humanBytes(memSum)),
-		detail,
+		th.dim.Render("CPU "+pct(avg)) + "   " + th.dim.Render("MEM "+humanBytes(memSum)) + "   " + detail,
 	}
-	return m.box(hostID, lines, w, 7, focused)
+	return m.card(hostID, lines, w, 6, focused, lipgloss.Color("#2A2D3A"))
 }
 
 // attentionRows lists every deployment that is failing, degraded, or
@@ -486,10 +541,10 @@ func (m *Model) attentionRows() []string {
 	})
 
 	if len(issues) == 0 {
-		return []string{th.ok.Render("● nothing needs attention")}
+		return []string{m.card("needs attention", []string{th.ok.Render("● nothing needs attention")}, m.width, 4, false, lipgloss.Color("#4A1F24"))}
 	}
 
-	const maxRows = 3
+	const maxRows = 2
 	var rows []string
 	for i, is := range issues {
 		if i >= maxRows {
@@ -515,7 +570,7 @@ func (m *Model) attentionRows() []string {
 				m.th.stateStyle(state).Render(pad(string(state), 10))+
 				reasonCell)
 	}
-	return []string{m.panel(rows, m.width, len(rows)+2)}
+	return []string{m.card("needs attention", rows, m.width, len(rows)+3, false, lipgloss.Color("#4A1F24"))}
 }
 
 // panel draws a borderless-content box (no title row) for the attention list.
