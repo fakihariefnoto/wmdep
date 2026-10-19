@@ -11,17 +11,18 @@ import (
 	"github.com/fakihariefnoto/wmdep/internal/app"
 )
 
-// Palette. ANSI 256 values are used rather than hex so the UI degrades
-// gracefully on 16-color terminals and in tmux.
+// Palette. Truecolor hex is used so state colors are distinct; lipgloss
+// downgrades them for 256/16-color terminals. Light mode gets darker variants.
 var (
-	colAccent  = lipgloss.Color("63")  // violet
-	colAccent2 = lipgloss.Color("212") // pink
-	colDim     = lipgloss.Color("244") // gray
-	colFaint   = lipgloss.Color("240")
-	colOK      = lipgloss.Color("42")  // green
-	colWarn    = lipgloss.Color("214") // orange
-	colErr     = lipgloss.Color("203") // red
-	colText    = lipgloss.Color("252")
+	colAccent  = lipgloss.Color("#7D56F4") // violet
+	colAccent2 = lipgloss.Color("#FF5FAF") // pink
+	colDim     = lipgloss.Color("#8A8FA3")
+	colFaint   = lipgloss.Color("#565B6E")
+	colOK      = lipgloss.Color("#3DDC97")
+	colWarn    = lipgloss.Color("#FFB454")
+	colErr     = lipgloss.Color("#FF5C5C")
+	colText    = lipgloss.Color("#E6E6F0")
+	colCardBG  = lipgloss.Color("#1A1C26")
 )
 
 // theme bundles every style the UI renders with. Keeping them in one struct
@@ -50,38 +51,57 @@ type theme struct {
 
 	key     lipgloss.Style
 	keyDesc lipgloss.Style
+
+	cardBG lipgloss.Style
 }
 
 func newTheme(dark bool) theme {
 	t := theme{dark: dark}
 
-	t.title = lipgloss.NewStyle().Bold(true).Foreground(colAccent2)
-	t.subtitle = lipgloss.NewStyle().Foreground(colDim)
-	t.dim = lipgloss.NewStyle().Foreground(colDim)
-	t.faint = lipgloss.NewStyle().Foreground(colFaint)
-	t.bold = lipgloss.NewStyle().Bold(true).Foreground(colText)
-	t.accent = lipgloss.NewStyle().Foreground(colAccent)
-	t.selected = lipgloss.NewStyle().Bold(true).Foreground(colAccent2)
-	t.statusBar = lipgloss.NewStyle().Foreground(colDim)
+	accent, accent2 := colAccent, colAccent2
+	dim, faint, text := colDim, colFaint, colText
+	ok, warn, errc := colOK, colWarn, colErr
+	cardBG := colCardBG
+	if !dark {
+		accent = lipgloss.Color("#5B3BC4")
+		accent2 = lipgloss.Color("#C2247A")
+		dim = lipgloss.Color("#586074")
+		faint = lipgloss.Color("#9AA0B0")
+		text = lipgloss.Color("#1B1D24")
+		ok = lipgloss.Color("#1F9D63")
+		warn = lipgloss.Color("#B36A00")
+		errc = lipgloss.Color("#C62B2B")
+		cardBG = lipgloss.Color("#F2F3F7")
+	}
+
+	t.title = lipgloss.NewStyle().Bold(true).Foreground(accent2)
+	t.subtitle = lipgloss.NewStyle().Foreground(dim)
+	t.dim = lipgloss.NewStyle().Foreground(dim)
+	t.faint = lipgloss.NewStyle().Foreground(faint)
+	t.bold = lipgloss.NewStyle().Bold(true).Foreground(text)
+	t.accent = lipgloss.NewStyle().Foreground(accent)
+	t.selected = lipgloss.NewStyle().Bold(true).Foreground(accent2)
+	t.statusBar = lipgloss.NewStyle().Foreground(dim)
 
 	t.pane = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colFaint).
+		BorderForeground(faint).
 		Padding(0, 1)
 	t.paneFocused = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colAccent).
+		BorderForeground(accent).
 		Padding(0, 1)
-	t.paneTitle = lipgloss.NewStyle().Bold(true).Foreground(colDim)
-	t.paneTitleHi = lipgloss.NewStyle().Bold(true).Foreground(colAccent2)
+	t.paneTitle = lipgloss.NewStyle().Bold(true).Foreground(dim)
+	t.paneTitleHi = lipgloss.NewStyle().Bold(true).Foreground(accent2)
 
-	t.ok = lipgloss.NewStyle().Foreground(colOK)
-	t.warn = lipgloss.NewStyle().Foreground(colWarn)
-	t.err = lipgloss.NewStyle().Foreground(colErr)
-	t.unknown = lipgloss.NewStyle().Foreground(colFaint)
+	t.ok = lipgloss.NewStyle().Foreground(ok)
+	t.warn = lipgloss.NewStyle().Foreground(warn)
+	t.err = lipgloss.NewStyle().Foreground(errc)
+	t.unknown = lipgloss.NewStyle().Foreground(faint)
+	t.cardBG = lipgloss.NewStyle().Background(cardBG)
 
-	t.key = lipgloss.NewStyle().Foreground(colAccent2)
-	t.keyDesc = lipgloss.NewStyle().Foreground(colDim)
+	t.key = lipgloss.NewStyle().Foreground(accent2)
+	t.keyDesc = lipgloss.NewStyle().Foreground(dim)
 	return t
 }
 

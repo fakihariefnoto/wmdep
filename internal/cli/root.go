@@ -18,9 +18,11 @@ var (
 
 // opts are the global flags, shared by every subcommand.
 type opts struct {
-	dir  string
-	env  string
-	demo bool
+	dir      string
+	env      string
+	demo     bool
+	noSplash bool
+	screen   string
 }
 
 // Execute runs the CLI and returns a process exit code.
@@ -55,6 +57,8 @@ func newRootCmd(o *opts) *cobra.Command {
 	pf.StringVarP(&o.dir, "config", "c", "", "config directory (default $WMDEP_CONFIG_DIR or ~/.config/wmdep)")
 	pf.StringVarP(&o.env, "env", "e", "", "limit to one environment")
 	pf.BoolVar(&o.demo, "demo", false, "use the in-memory provider instead of SSH (no connections)")
+	pf.BoolVar(&o.noSplash, "no-splash", false, "skip the splash menu and start on the dashboard")
+	pf.StringVar(&o.screen, "screen", "", "start screen: dashboard or manage")
 
 	root.AddCommand(
 		newConfigCmd(o),

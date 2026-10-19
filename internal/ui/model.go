@@ -28,7 +28,20 @@ const (
 	flashTTL  = 5 * time.Second
 )
 
+// Version is injected by the CLI for the splash footer.
+var Version = "dev"
+
 type focus int
+
+// screenKind is the router position: the splash menu, the card dashboard, or
+// the three-pane management workspace.
+type screenKind int
+
+const (
+	screenSplash screenKind = iota
+	screenDashboard
+	screenManage
+)
 
 const (
 	focusTree focus = iota
@@ -87,6 +100,11 @@ type Model struct {
 	width, height int
 	focus         focus
 	layout        layout
+	screen        screenKind
+	dash          dashboard
+	splash        splash
+	scopeEnv      string
+	scopeHost     string
 
 	tree   *hostTree
 	table  *appTable
@@ -131,16 +149,26 @@ func New(b *config.Bundle, reg *provider.Registry) *Model {
 		table:  newAppTable(th),
 		logs:   newLogPane(),
 		status: map[app.Key]app.Status{},
+		screen: screenSplash,
 	}
 	m.poller = watch.New(reg, b.Defaults().SSHTimeout.Std(), 8)
+	m.dash.build(b)
 	m.tree.rebuild(b, m.status)
 	m.rebuild()
 	return m
 }
 
-// Init implements tea.Model.
+// Init implements tea.Model. The splash does not poll: nothing is on screen
+// yet, so the first remote wave starts when the dashboard opens.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.spin.Tick, m.tick(), m.refresh(), m.startLogs())
+	if m.screen == screenSplash {
+		return m.spin.Tick
+	}
+	cmds := []tea.Cmd{m.spin.Tick, m.tick(), m.refresh()}
+	if m.screen == screenManage {
+		cmds = append(cmds, m.startLogs())
+	}
+	return tea.Batch(cmds...)
 }
 
 // View implements tea.Model.
@@ -167,9 +195,24 @@ func (m *Model) refresh() tea.Cmd {
 	}
 }
 
+// targets polls what the current screen shows: the dashboard's scope, or the
+// manage screen's tree selection.
 func (m *Model) targets() []watch.Target {
-	env, host, _ := m.tree.selected()
-	return watch.Build(m.bundle.Apps, m.bundle.Hosts, env, host, m.filter)
+	if m.screen == screenSplash {
+		return nil
+	}
+	if m.screen == screenManage {
+		env, host, _ := m.tree.selected()
+		return watch.Build(m.bundle.Apps, m.bundle.Hosts, env, host, m.filter)
+	}
+	switch m.dash.scope {
+	case scopeDeployments:
+		return watch.Build(m.bundle.Apps, m.bundle.Hosts, "", "", "")
+	case scopeServers:
+		return watch.Build(m.bundle.Apps, m.bundle.Hosts, "", "", "")
+	default:
+		return watch.Build(m.bundle.Apps, m.bundle.Hosts, "", "", "")
+	}
 }
 
 func waitForPoll(ch <-chan watch.Result) tea.Cmd {
@@ -278,12 +321,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, readLogCmd(m.logs.key, m.logReader)
 
 	case tea.KeyPressMsg:
-		return m.handleKey(msg)
+		switch m.screen {
+		case screenSplash:
+			return m.handleSplashKey(msg)
+		case screenDashboard:
+			return m.handleDashboardKey(msg)
+		default:
+			return m.handleManageKey(msg)
+		}
 	}
 	return m, nil
 }
 
-func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleManageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.filtering {
 		return m.updateFilter(msg)
 	}
@@ -296,10 +346,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.showHelp = !m.showHelp
 		return m, nil
 	case key.Matches(msg, m.keys.Back):
-		if m.showHelp {
+		switch {
+		case m.showHelp:
 			m.showHelp = false
-		} else if m.filter != "" {
+		case m.filter != "":
 			m.filter = ""
+			return m, m.refresh()
+		default:
+			m.stopLogs()
+			m.openDashboard(m.dash.scope)
 			return m, m.refresh()
 		}
 		return m, nil
@@ -522,6 +577,8 @@ func readLogCmd(k app.Key, r *bufio.Reader) tea.Cmd {
 func (m *Model) rebuild() {
 	m.applyLayout()
 
+	m.dash.build(m.bundle)
+
 	env, host, _ := m.tree.selected()
 	targets := watch.Build(m.bundle.Apps, m.bundle.Hosts, env, host, m.filter)
 	apps := make([]app.App, 0, len(targets))
@@ -610,7 +667,14 @@ func (m *Model) render() string {
 	if m.showHelp {
 		return m.helpView()
 	}
-	return m.mainView()
+	switch m.screen {
+	case screenSplash:
+		return m.splashView()
+	case screenDashboard:
+		return m.dashboardView()
+	default:
+		return m.mainView()
+	}
 }
 
 func (m *Model) mainView() string {
@@ -649,12 +713,25 @@ func (m *Model) appsTitle() string {
 }
 
 func (m *Model) headerLine() string {
-	envs := strings.Join(m.bundle.EnvNames(), ",")
-	if envs == "" {
-		envs = "no environments"
+	th := m.th
+
+	// A breadcrumb replaces the marketing line once a card has been opened, so
+	// the operator always knows which scope the table is showing.
+	crumbs := []string{"dashboard"}
+	if m.scopeEnv != "" {
+		crumbs = append(crumbs, m.scopeEnv)
 	}
-	left := m.th.title.Render("wmdep") + m.th.faint.Render("  watch my deployment") +
-		m.th.dim.Render("  ·  "+envs+"  ·  "+itoa(len(m.bundle.Apps))+" apps")
+	if m.scopeHost != "" {
+		crumbs = append(crumbs, m.scopeHost)
+	}
+	var left string
+	if len(crumbs) == 1 {
+		left = th.title.Render("wmdep") + th.faint.Render("  manage") +
+			th.dim.Render("  ·  all environments")
+	} else {
+		left = th.title.Render("wmdep") + th.faint.Render("  › ") +
+			th.accent.Render(strings.Join(crumbs, " › "))
+	}
 	if m.Demo {
 		left += "  " + m.th.warn.Render("demo")
 	}

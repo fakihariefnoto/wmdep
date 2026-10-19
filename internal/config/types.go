@@ -97,6 +97,7 @@ type Defaults struct {
 type UI struct {
 	Theme       string `yaml:"theme"` // "dark" | "light"
 	ConfirmProd *bool  `yaml:"confirm_prod"`
+	Splash      *bool  `yaml:"splash"` // false skips the menu screen
 }
 
 // HostsFile is the shape of hosts.yaml: a shared inventory referenced by name.

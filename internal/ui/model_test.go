@@ -13,7 +13,7 @@ import (
 	"github.com/fakihariefnoto/wmdep/internal/watch"
 )
 
-func testModel(t *testing.T) *Model {
+func newTestModel(t *testing.T) *Model {
 	t.Helper()
 	b, diags := config.Load("../config/testdata/good", config.Options{})
 	for _, d := range diags {
@@ -24,6 +24,16 @@ func testModel(t *testing.T) *Model {
 	reg := provider.NewRegistry()
 	reg.RegisterAll(provider.NewFake())
 	return New(b, reg)
+}
+
+// testModel starts in the workspace, which is what most of the M1 tests cover.
+func testModel(t *testing.T) *Model {
+	t.Helper()
+	m := newTestModel(t)
+	m.screen = screenManage
+	m.tree.setScope("", "")
+	m.rebuild()
+	return m
 }
 
 func send(t *testing.T, m *Model, msg tea.Msg) *Model {
@@ -355,3 +365,135 @@ func TestClampAndHelpers(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestStartsOnSplash(t *testing.T) {
+	m := newTestModel(t)
+	if m.screen != screenSplash {
+		t.Fatalf("screen = %v, want splash", m.screen)
+	}
+	m = send(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	got := viewText(m)
+	for _, want := range []string{"Dashboard", "Deployments", "Servers", "Scan", "Settings", "Quit"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("splash missing %q:\n%s", want, got)
+		}
+	}
+	if m.Init() == nil {
+		t.Error("Init should still animate the spinner on the splash")
+	}
+}
+
+func TestSplashEnterOpensDashboard(t *testing.T) {
+	m := newTestModel(t)
+	m = send(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m = send(t, m, press("enter"))
+
+	if m.screen != screenDashboard {
+		t.Fatalf("screen = %v, want dashboard", m.screen)
+	}
+	got := viewText(m)
+	for _, want := range []string{"dashboard", "OVERVIEW", "HOSTS", "ATTENTION", "prod", "staging", "web-1"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("dashboard missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestSplashMenuScopesTheDashboard(t *testing.T) {
+	cases := []struct {
+		item    int
+		scope   dashScope
+		want    []string
+		notWant []string
+	}{
+		{1, scopeDeployments, []string{"DEPLOYMENTS", "prod"}, []string{"HOSTS"}},
+		{2, scopeServers, []string{"SERVERS", "HOSTS", "web-1"}, []string{"web-1 · web-2"}},
+	}
+	for _, tc := range cases {
+		m := newTestModel(t)
+		m = send(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+		for range tc.item {
+			m = send(t, m, press("j"))
+		}
+		m = send(t, m, press("enter"))
+		if m.screen != screenDashboard || m.dash.scope != tc.scope {
+			t.Fatalf("item %d: screen=%v scope=%v, want dashboard/%v", tc.item, m.screen, m.dash.scope, tc.scope)
+		}
+		got := viewText(m)
+		for _, want := range tc.want {
+			if !strings.Contains(got, want) {
+				t.Errorf("item %d: missing %q:\n%s", tc.item, want, got)
+			}
+		}
+		for _, bad := range tc.notWant {
+			if strings.Contains(got, bad) {
+				t.Errorf("item %d: should not contain %q", tc.item, bad)
+			}
+		}
+	}
+}
+
+func TestDashboardCardOpensScopedManageAndEscReturns(t *testing.T) {
+	m := newTestModel(t)
+	m = send(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m = send(t, m, press("enter")) // splash -> dashboard
+	if m.screen != screenDashboard {
+		t.Fatal("expected dashboard")
+	}
+
+	// The first focusable card is the first environment.
+	m = send(t, m, press("enter"))
+	if m.screen != screenManage {
+		t.Fatalf("screen = %v, want manage", m.screen)
+	}
+	if m.scopeEnv != "prod" {
+		t.Fatalf("scopeEnv = %q, want prod", m.scopeEnv)
+	}
+	for _, a := range m.table.apps {
+		if a.Environment != "prod" {
+			t.Errorf("scoped table leaked %s from %s", a.ID, a.Environment)
+		}
+	}
+	if got := viewText(m); !strings.Contains(got, "dashboard › prod") {
+		t.Errorf("manage header should show a breadcrumb:\n%s", got)
+	}
+
+	m = send(t, m, press("esc"))
+	if m.screen != screenDashboard {
+		t.Fatalf("esc should return to the dashboard, got %v", m.screen)
+	}
+	if m.scopeEnv != "prod" {
+		t.Error("dashboard should preserve the scope on return")
+	}
+}
+
+func TestDashboardFocusAndHelp(t *testing.T) {
+	m := newTestModel(t)
+	m = send(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = send(t, m, press("enter"))
+
+	start := m.dash.cursor
+	m = send(t, m, press("tab"))
+	if m.dash.cursor == start {
+		t.Error("tab should move the card cursor")
+	}
+	m = send(t, m, press("?"))
+	if !m.showHelp {
+		t.Error("? should open help on the dashboard")
+	}
+	m = send(t, m, press("esc"))
+	if m.showHelp || m.screen != screenDashboard {
+		t.Error("esc should close help before leaving the dashboard")
+	}
+	if got := viewText(m); !strings.Contains(got, "ATTENTION") {
+		t.Errorf("dashboard should still render:\n%s", got)
+	}
+}
+
+func TestWordmarkFitsEightyColumns(t *testing.T) {
+	for i, line := range wordmark {
+		if w := lipglossWidth(strings.TrimRight(line, " ")); w > 60 {
+			t.Errorf("wordmark line %d is %d columns, want <= 60", i, w)
+		}
+	}
+}

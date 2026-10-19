@@ -35,6 +35,18 @@ type hostTree struct {
 	collapsed map[string]bool
 	width     int
 	height    int
+
+	// scope limits the tree to one environment, and to one host inside it.
+	// The dashboard sets it when a card is opened.
+	scopeEnv  string
+	scopeHost string
+}
+
+// setScope narrows the tree. Empty values mean "no scope".
+func (t *hostTree) setScope(env, host string) {
+	t.scopeEnv, t.scopeHost = env, host
+	t.cursor = 0
+	t.offset = 0
 }
 
 func newHostTree() *hostTree {
@@ -71,6 +83,9 @@ func (t *hostTree) rebuild(b *config.Bundle, status map[app.Key]app.Status) {
 
 	rows := make([]treeRow, 0, len(b.Envs)*2)
 	for _, env := range b.Envs {
+		if t.scopeEnv != "" && env.Name != t.scopeEnv {
+			continue
+		}
 		n, states := statesFor(env.Name, "")
 		rows = append(rows, treeRow{
 			kind: treeEnv, env: env.Name, apps: n, state: worstState(states),
@@ -81,6 +96,9 @@ func (t *hostTree) rebuild(b *config.Bundle, status map[app.Key]app.Status) {
 		hosts := append([]string(nil), env.Hosts...)
 		sort.Strings(hosts)
 		for _, h := range hosts {
+			if t.scopeHost != "" && h != t.scopeHost {
+				continue
+			}
 			hn, hstates := statesFor(env.Name, h)
 			rows = append(rows, treeRow{
 				kind: treeHost, env: env.Name, host: h, apps: hn, state: worstState(hstates),

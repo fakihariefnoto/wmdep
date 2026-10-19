@@ -8,49 +8,79 @@ Repository: <https://github.com/fakihariefnoto/wmdep> · module:
 `github.com/fakihariefnoto/wmdep`
 
 ```
-wmdep  watch my deployment  ·  prod,staging  ·  4 apps                             updated just now
-╭──────────────────╮╭────────────────────────────────────────────────────╮╭────────────────────────╮
-│ hosts            ││ apps · prod                                        ││ detail                 │
-│ ▲ ▾ prod      3  ││  APP             HOST          STATE       UP      ││ api                    │
-│ ▲   web-1     2  ││  api             web-1         ▲ degraded  -       ││ prod · web-1 · systemd │
-│ ●   web-2     1  ││  worker          web-1         ● running   2h0m    ││                        │
-│ ? ▾ staging   1  ││  redis           web-2         ● running   3h0m    ││ target   api.service   │
-│ ?   stage-1   1  ││                                                    ││ workdir  /srv/api      │
-│                  ││                                                    ││ deploy   api-prod      │
-│                  ││                                                    ││ health   http http://… │
-│                  ││                                                    ││                        │
-│                  ││                                                    ││ status                 │
-│                  ││                                                    ││ state    degraded (he… │
-│                  ││                                                    ││ uptime   1h0m          │
-│                  ││                                                    ││ cpu      4%            │
-│                  ││                                                    ││ memory   40M           │
-│                  ││                                                    ││ observed just now      │
-│                  ││                                                    ││                        │
-│                  ││                                                    ││                        │
-│                  ││                                                    ││                        │
-│                  ││                                                    ││                        │
-╰──────────────────╯╰────────────────────────────────────────────────────╯╰────────────────────────╯
+wmdep  dashboard                                                             prod,staging · 3 hosts
+
+OVERVIEW
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ logs · prod/web-1/api · following                                                                │
-│ 18:22:01 INFO  request handled path=/api/7 status=200 dur=31ms                                   │
-│ 18:22:02 WARN  pool saturated idle=0 waiting=3                                                   │
-│ 18:22:03 ERROR upstream redis timeout after 2s                                                   │
-│                                                                                                  │
+│ fleet                                                                                            │
+│ 4 deployments    ● 2 up   ✕ 1 down   ▲ 1 degraded                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-pane: hosts     tab next pane • ↑/k up • ↓/j down • d deploy • r restart • L logs • ? help • q quit
+╭───────────────────────────────────────────────╮╭───────────────────────────────────────────────╮
+│ prod                                          ││ staging                                       │
+│ 3 deployments   ▲ 2 issues                    ││ 1 deployment   ● healthy                      │
+│ web-1 · web-2                                 ││ stage-1                                       │
+│ ▲ api  ● worker  ✕ redis                      ││ ● web                                         │
+╰───────────────────────────────────────────────╯╰───────────────────────────────────────────────╯
+
+HOSTS
+╭──────────────────────────────╮╭──────────────────────────────╮╭──────────────────────────────╮
+│ web-1                        ││ web-2                        ││ stage-1                      │
+│ 10.0.0.11:2222 · deploy      ││ 10.0.0.12:22 · deploy        ││ stage.example.com:22 · ubun… │
+│ 2 dep   1 issue              ││ 1 dep   1 issue              ││ 1 dep   healthy              │
+│ ▲ health check failing       ││ ✕ failed                     ││ ● web running                │
+╰──────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────╯
+
+ATTENTION
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ✕ redis     web-2 · prod    failed                                                               │
+│ ▲ api       web-1 · prod    degraded  health check failing                                       │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+↑↓←→ cards · enter open · a add · e edit · x delete · s scan · r refresh · ? help
 ```
 
 ## Status
 
-**M1 (skeleton) is complete.** The UI, config loader, validation, filtering, and
-watch scheduler are real. Remote I/O is not: every app is served by an in-memory
-provider, which is why the header shows a `demo` chip.
+**M1 and M1b are complete.** The config loader, validation, watch scheduler,
+screen router, splash menu, and dashboard cards are real. Remote I/O is not:
+every app is served by an in-memory provider, which is why the header shows a
+`demo` chip.
 
-**Next (M1b): navigation rework** — an ASCII splash/menu, then a dashboard of
-cards (fleet, environments, hosts, attention), then the existing three-pane view
-scoped to the card you pick. After that, M1c adds add/edit/delete of deployments
-with a guarded YAML writer, and M2b adds host scanning. Until M1b lands, `wmdep`
-opens the management view directly.
+**Next (M1c): configuration you can actually maintain** — a deployment editor
+(add/edit/duplicate/delete), a host editor with `＋ new host`, searchable
+Deployments and Servers lists, templates for common stacks, and a guarded
+YAML writer that preserves comments. Plus `config doctor`, `config fmt`, and
+`config edit`.
+
+After that: M2 SSH core, M2b host scan, M3 providers, M5 deploy engine.
+
+## Navigation
+
+```
+splash (ASCII menu) ──enter──▶ dashboard (cards) ──enter──▶ manage (3 panes)
+        │                          │  a/e/x                      │
+        │                          └──▶ editors                  │
+        └── q ──▶ quit             esc ◀──────────────────────────┘
+```
+
+- `wmdep` starts on the splash; `--no-splash` or `ui.splash: false` skips it.
+- `--screen dashboard|manage` starts directly on a screen (scripts, muscle memory).
+- `esc` walks back: help → dirty editor → dashboard → splash.
+
+## Design notes
+
+- Truecolor palette: violet/pink accents, green/amber/red states, near-black card
+  surface; light theme uses darker variants. `NO_COLOR` and 256/16-colour
+  terminals degrade automatically.
+- Every state carries a glyph **and** a word, so colour is never the only signal.
+- Cards use a six-row rhythm, one-cell gutters, rounded borders, and an accent
+  border on the focused card. The grid is 1/2/3 columns by width.
+- The wordmark is a six-row ANSI-shadow logo with a violet→pink gradient.
 
 | Area | State |
 |---|---|
@@ -166,21 +196,29 @@ Pipelines are validated today; execution lands in M5.
 
 ## Keys
 
-| Key | Action |
-|---|---|
-| `tab` / `shift+tab` | next / previous pane |
-| `↑↓` or `k`/`j` | move |
-| `←`/`→` or `h`/`l` | collapse / expand environment |
-| `enter` / `space` | select |
-| `g` / `G` | top / bottom |
-| `/` | filter apps (id, host, env, provider, target) |
-| `R` | poll now |
-| `r` / `x` | restart / start-stop (works against the demo provider) |
-| `L` / `f` / `c` | focus logs / toggle follow / clear |
-| `?` | full key reference |
-| `q` / `ctrl+c` | quit |
+| Screen | Key | Action |
+|---|---|---|
+| Splash | `↑↓` / `jk` | move |
+| | `enter` | open the highlighted item |
+| Dashboard | `tab` / arrows | move between cards |
+| | `enter` | open Manage scoped to the card |
+| | `a` / `e` / `x` | add / edit / delete (M1c) |
+| | `s` | scan a host (M2b) |
+| | `r` | poll now |
+| Manage | `tab` / `shift+tab` | next / previous pane |
+| | `↑↓` `k`/`j` | move |
+| | `←→` `h`/`l` | collapse / expand environment |
+| | `enter` / `space` | select |
+| | `g` / `G` | top / bottom |
+| | `/` | filter by id, host, env, provider, or target; `esc` clears |
+| | `R` | poll now |
+| | `r` / `x` | restart / start-stop |
+| | `L` / `f` / `c` | focus logs / toggle follow / clear |
+| | `d` / `F` | deploy preview / SFTP browser (M5 / M6) |
+| | `?` / `q` | help / quit |
 
-`d` (deploy) and `F` (files) are wired to honest "arrives in M5/M6" notices.
+`esc` on Manage returns to the dashboard (after closing help or clearing a
+filter). The dashboard keeps the last scope, so going back in is one keypress.
 
 ## Development
 

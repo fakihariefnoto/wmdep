@@ -67,6 +67,19 @@ func runTUI(cmd *cobra.Command, o *opts) error {
 	// M1 only ships the in-memory provider, so every run is a demo run. M2
 	// clears this once the SSH providers are registered.
 	model.Demo = true
+	ui.Version = Version
+
+	switch {
+	case o.screen == "manage":
+		model.StartAt("manage")
+	case o.screen == "dashboard", o.noSplash:
+		model.StartAt("dashboard")
+	case bundle.Config.UI.Splash != nil && !*bundle.Config.UI.Splash:
+		model.StartAt("dashboard")
+	case o.screen != "":
+		return fmt.Errorf("unknown --screen %q (want dashboard or manage)", o.screen)
+	}
+
 	p := tea.NewProgram(model, tea.WithContext(cmd.Context()))
 	_, err = p.Run()
 	return err

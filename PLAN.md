@@ -106,10 +106,14 @@ Cards:
 | Card | Content | `enter` opens |
 |---|---|---|
 | Fleet | up/down/failed counts, host reachability | Manage, unfiltered |
-| Environment (one per env) | host count, deployment count, worst state | Manage filtered to env |
+| Environment (one per env) | host count, deployment count, worst state, app chips | Manage filtered to env |
 | Host (one per host) | address, deployment count, reachability, last poll | Manage filtered to host |
 | Attention | every degraded/failed deployment plus its reason | Manage focused on that app |
 | Activity (M5) | last deploys/runs with result | run output |
+
+The menu's **Deployments** and **Servers** entries are the maintenance screens
+described in §3b. Until M1c lands, both route to the dashboard with a scope
+preset (`deployments`, `servers`) so the navigation is already in place.
 
 The dashboard reuses the same poller as Manage, but only polls deployments whose
 cards are visible, so a large fleet does not poll everything.
@@ -119,6 +123,23 @@ cards are visible, so a large fleet does not poll everything.
 The M1 three-pane view, now scoped: the header shows a breadcrumb
 (`dashboard › prod › web-1`), `esc` returns to the dashboard, and the tree only
 contains the scoped environment/host. All M1 keys keep working.
+
+### 3b. Deployments and Servers screens (M1c)
+
+Cards are for scanning a fleet; they are not a good place to maintain dozens of
+entries. So the menu's Deployments and Servers entries get dedicated, searchable
+list screens in M1c (M1b routes them to the dashboard scopes as an interim):
+
+- **Deployments**: one row per deployment — `APP · ENV · HOST · PROVIDER ·
+  STATE · PIPELINE` — with `/` search, `enter` to open Manage scoped, `a` add,
+  `e` edit, `c` duplicate, `x` delete, `d` deploy. Grouped by environment with
+  sticky headers. This is the maintenance screen.
+- **Servers**: one row per host — `HOST · ADDRESS · USER · AUTH · DEPLOYMENTS ·
+  STATE` — with `enter` to scope Manage, `a` add host, `e` edit, `x` delete
+  (blocked while deployments reference it), `s` scan, and `t` test connection.
+
+Both screens keep the same footer/help model and share the editor and writer
+with the dashboard shortcuts, so there is one implementation of each operation.
 
 ### 4. Deployment editor
 
@@ -148,6 +169,9 @@ systemd shows `unit`, docker shows `container`, compose shows `project` +
 - Delete (`x`) removes the entry after a confirmation that shows the exact file
   and YAML path. Prod deletion additionally requires typing the app id.
 - Unsaved changes prompt before `esc` discards them.
+- The host picker ends with **＋ new host**, which opens a compact host form
+  (alias, address, port, user, auth, key) and writes `hosts.yaml` through the
+  same writer. No separate Servers CRUD screen is needed for v0.1.
 
 ### 5. Scan a host
 
@@ -164,14 +188,73 @@ unit names.
 Scan is read-only until the import step, and the import goes through the same
 validated writer as the editor. It arrives in M2b, after the SSH core.
 
+### 6. Configuration that stays easy to maintain
+
+The target audience is a developer who wants to add a service and deploy it
+without memorising YAML. Configuration is still plain files (reviewable, diffable,
+git-friendly), but the app does the bookkeeping:
+
+- **Forms, not raw YAML.** Every add/edit is a form with provider-aware fields,
+  a host picker, and a pipeline picker. `＋ new host` and `＋ new pipeline` open
+  compact sub-forms instead of bouncing to an editor.
+- **Inline help.** `f1` (or `?` on a field) shows the field's meaning and an
+  example; focused fields show their valid values. No documentation lookup.
+- **Validation before save.** The same rules as `wmdep config validate`; errors
+  appear under the field and the save is refused, so the file is never broken.
+- **Templates.** `a` on an empty fleet offers presets: Go binary under systemd,
+  Node build under systemd, docker container, compose service. A preset fills the
+  form; the operator edits names and paths.
+- **Duplicate.** `c` clones a deployment, which is how a second host or a staging
+  copy is usually created.
+- **Safe writes.** Comment-preserving node edits, atomic rename, `.bak`, lock,
+  and an mtime guard (see §4 decision 12).
+- **Reload without restart.** `R` re-reads the config directory and reports
+  problems in-app. External edits are picked up when saving detects the mtime
+  change, or on `R`.
+- **`wmdep config doctor`.** Validates, checks key files/permissions, keyring
+  availability, duplicate ids, unreachable proxy jumps, and (with SSH) host
+  reachability. This is the "why won't it start" command.
+- **`wmdep config fmt`.** Canonicalises YAML (stable key order, sorted hosts and
+  apps) so diffs stay small; it is opt-in because the writer already preserves
+  what the operator wrote.
+- **`wmdep config edit`.** Opens the directory in `$EDITOR` for people who prefer
+  text; the app reloads on return.
+
+### 7. Visual design
+
+The dashboard is the first impression, so it gets a real visual system rather
+than default terminal borders:
+
+- **Palette**: violet `#7D56F4` + pink `#FF5FAF` accents, green `#3DDC97`,
+  amber `#FFB454`, red `#FF5C5C`, slate dims on a near-black `#1A1C26` card
+  surface. Truecolor, with automatic 256/16-colour fallback and `NO_COLOR`
+  support.
+- **Light theme**: darker accent/semantic variants, `#F2F3F7` card surface, so
+  light terminals are not a washed-out afterthought.
+- **Wordmark**: six-row ANSI-shadow logo with a per-row violet→pink gradient.
+- **Cards**: rounded border, one cell of padding, six-row rhythm, one-cell
+  gutters, state dot plus label; the focused card switches to the accent border
+  and pink title, so selection is obvious without moving the content.
+- **Hierarchy**: faint uppercase section labels (`OVERVIEW`, `HOSTS`,
+  `ATTENTION`), bold values, dim metadata, coloured only where a state matters.
+  Colour is never the only signal — every state carries a glyph and a word.
+- **Density**: 1 column below 90 cells, 2 at 90–129, 3 at 130+, host cards
+  allowed 3-up earlier than environment cards because they are narrower.
+- **Motion**: a single spinner for polling, no blinking text; renders are
+  deterministic so tests can assert exact frames.
+- **Tests**: frame snapshots at 80x24, 100x34, 140x40 assert line count, width,
+  focus ring, and that colour is backed by a glyph.
+
 ### Keys by screen
 
 | Screen | Keys |
 |---|---|
 | Splash | `↑↓`/`jk` move, `enter` open, `q` quit |
-| Dashboard | `tab`/arrows between cards, `enter` open, `a` add, `e` edit, `x` delete, `s` scan, `/` filter, `r` refresh, `?` help |
+| Dashboard | `tab`/arrows between cards, `enter` open, `a` add, `e` edit, `x` delete, `s` scan, `r` refresh, `?` help |
+| Deployments (M1c) | `↑↓` move, `/` search, `enter` open, `a` add, `e` edit, `c` duplicate, `x` delete, `d` deploy |
+| Servers (M1c) | `↑↓` move, `enter` open, `a` add, `e` edit, `x` delete, `s` scan, `t` test connection |
 | Manage | the M1 keys (see README): panes, restart, start/stop, logs, deploy |
-| Editor | `tab` next field, `enter` open select, `ctrl+s` save, `esc` cancel |
+| Editor | `tab` next field, `enter` open select, `f1` field help, `ctrl+s` save, `esc` cancel |
 | Scan | `space` toggle, `a` all, `n` none, `enter` import, `esc` back |
 
 Headless equivalents today: `wmdep status`; `wmdep logs` and `wmdep deploy` follow
@@ -450,23 +533,33 @@ forward because the fake provider made them cheap to exercise. The stock
 whenever the pane resizes.
 
 ### M1b — Navigation shell & dashboard (3–4 days) — next
-- Screen router: a stack of sub-models (`splash`, `dashboard`, `manage`, `editor`, `scan`), shared services injected once, `esc` popping correctly (help first, then dirty guards).
-- Splash: ASCII wordmark, purpose line, menu with per-item description, version footer; `--no-splash`, `--screen`, `ui.splash`.
-- Dashboard: responsive card grid (1/2/3 columns), fleet/env/host/attention cards, card focus with arrows/tab, `enter` to open Manage scoped to the card, `a/e/x/s` shortcuts.
-- Manage: accept a scope (env/host/app), breadcrumb in the header, `esc` back to the dashboard.
-- Visibility-aware polling for the dashboard (only cards on screen).
-- Tests: transitions and back-stack, splash fits 60 columns, card grid at 80/120/160 columns, scope filtering.
+- Screen router: `splash`, `dashboard` (scope all/deployments/servers), `manage`,
+  `editor`, `scan`; shared services injected once; `esc` pops with help and dirty
+  guards first.
+- Splash: ASCII wordmark, purpose line, menu with per-item description, version
+  footer; `--no-splash`, `--screen dashboard|manage`, `ui.splash`.
+- Dashboard: fleet strip, environment cards with app chips, host cards, attention
+  panel; responsive card grid; `enter` opens Manage scoped to the card.
+- Manage: accept a scope (env/host/app), breadcrumb in the header, `esc` back.
+- Visibility-aware polling: dashboard polls its scope, Manage polls its tree.
+- Tests: transitions and back-stack, splash fits 60 columns, card grid at
+  80/120/160 columns, scope filtering, breadcrumb.
 
-**Exit:** launch → splash → dashboard → pick a host card → manage filtered to that host → `esc` back, with no state loss.
+**Exit:** launch → splash → Deployments → pick an environment card → Manage
+filtered to it → `esc` back to the dashboard with the scope preserved.
 
-### M1c — Config writer & deployment editor (4–5 days)
+### M1c — Config writer, editor, and management screens (5–6 days)
 - `config.Writer`: edit the existing `yaml.Node` tree (comments and key order preserved), validate the whole bundle, atomic temp+fsync+rename, `.bak`, file lock, and an mtime/hash guard that aborts a save if the file changed since load.
-- Deployment form: add and edit share one model; fields vary by provider (systemd unit, docker container, compose project/service, pm2 process, command); inline errors from the loader's rules; `ctrl+s` saves and reloads the bundle in place.
-- Delete with confirmation showing file + YAML path; prod requires typing the deployment id.
-- Dirty-editor guard on `esc`.
-- Tests: round-trip preserves comments/ordering; add/edit/delete; invalid edits are refused; concurrent external edit aborts the save.
+- Deployment editor: add and edit share one model; fields vary by provider; inline help (`f1`); provider-aware validation; `ctrl+s` saves and reloads the bundle in place.
+- Host editor, including `＋ new host` from the deployment form.
+- Deployments list: searchable table grouped by environment, with add/edit/duplicate/delete/deploy.
+- Servers list: host table with add/edit/delete, test connection, scan.
+- Templates: Go/systemd, Node/systemd, docker, compose presets that prefill the form.
+- `wmdep config doctor`, `config fmt`, and `config edit`.
+- Dirty-editor guard, prod delete confirmation, delete blocked while deployments reference a host.
+- Tests: round-trip preserves comments/ordering; add/edit/delete/duplicate; invalid edits refused; concurrent external edit aborts; host delete guard; doctor catches key-permission problems.
 
-**Exit:** add a deployment from the dashboard, edit it, delete it, and confirm `wmdep config validate` still passes and the file diff contains only the intended change.
+**Exit:** add a host and two deployments using only the UI, duplicate one to a second host, delete one, and confirm `wmdep config validate` passes with a clean diff.
 
 ### M2 — SSH core (5–7 days)
 - `sshx`: dial with agent/key/password, `~/.ssh/config` + ProxyJump, known_hosts verification, timeouts, keepalive.
@@ -535,8 +628,8 @@ whenever the pane resizes.
 
 **Exit:** tagged v0.1.0, installable via `brew install`, docs cover every provider and step type.
 
-Total: roughly **9–11 weeks** part-time, **5–6 weeks** full-time (M1b/M1c add
-about two weeks before SSH; M2b adds scan afterwards).
+Total: roughly **9–12 weeks** part-time, **5–6 weeks** full-time (M1b/M1c add
+about two and a half weeks before SSH; M2b adds scan afterwards).
 
 ---
 
