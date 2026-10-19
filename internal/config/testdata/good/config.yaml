@@ -1,0 +1,13 @@
+version: 1
+
+defaults:
+  ssh_timeout: 3s
+  poll_interval: 1s
+  log_tail: 20
+  max_streams_per_host: 2
+
+environments: all
+
+ui:
+  theme: dark
+  confirm_prod: true

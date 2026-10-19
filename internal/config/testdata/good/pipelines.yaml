@@ -1,0 +1,15 @@
+pipelines:
+  api-prod:
+    steps:
+      - build:  { local: "go build -o dist/api ./cmd/api" }
+      - upload: { local: dist/api, remote: /srv/api/api.new, mode: "0755" }
+      - run:    { remote: "mv /srv/api/api.new /srv/api/api && systemctl restart api" }
+      - wait:   { health: true, timeout: 60s }
+    rollback:
+      - run: { remote: "mv /srv/api/api.prev /srv/api/api && systemctl restart api" }
+
+  web-prod:
+    steps:
+      - pull:  { remote: /srv/web, branch: main }
+      - build: { remote: /srv/web, cmd: "npm ci && npm run build" }
+      - wait:  { sleep: 2s }

@@ -1,0 +1,12 @@
+pipelines:
+  no-steps:
+    steps: []
+
+  two-kinds:
+    steps:
+      - build: { local: "make" }
+        run:   { remote: "make install" }
+
+  bad-build:
+    steps:
+      - build: { remote: /srv/app }

@@ -1,0 +1,9 @@
+name: staging
+hosts: [stage-1]
+
+apps:
+  - id: web
+    host: stage-1
+    provider: systemd
+    unit: web.service
+    deploy: web-prod

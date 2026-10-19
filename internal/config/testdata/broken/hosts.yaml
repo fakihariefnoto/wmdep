@@ -1,0 +1,15 @@
+hosts:
+  web-1:
+    address: 10.0.0.11
+    user: deploy
+    auth: carrier-pigeon
+
+  web-2:
+    address: 10.0.0.12
+    user: deploy
+    auth: agent
+    proxy_jump: ghost
+
+  lonely:
+    user: deploy
+    auth: agent

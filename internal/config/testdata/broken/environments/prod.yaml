@@ -1,0 +1,26 @@
+name: prod
+hosts: [web-2, nope]
+
+apps:
+  - id: api
+    host: ghost
+    provider: systemd
+    deploy: missing-pipeline
+
+  - id: api
+    host: web-2
+    provider: docker
+
+  - id: weird
+    host: web-2
+    provider: kubernetes
+
+  - id: probe
+    host: web-2
+    provider: command
+    health:
+      type: http
+
+  - id: nohost
+    provider: systemd
+    unit: x.service

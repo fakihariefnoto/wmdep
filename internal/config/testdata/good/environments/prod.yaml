@@ -1,0 +1,28 @@
+name: prod
+hosts: [web-1, web-2]
+
+apps:
+  - id: api
+    host: web-1
+    provider: systemd
+    unit: api.service
+    workdir: /srv/api
+    health:
+      type: http
+      url: http://127.0.0.1:8080/health
+      expect: "200"
+    deploy: api-prod
+
+  - id: worker
+    host: web-1
+    provider: systemd
+    unit: worker.service
+
+  - id: redis
+    host: web-2
+    provider: docker
+    container: redis
+    health:
+      type: command
+      cmd: "redis-cli ping"
+      expect: PONG

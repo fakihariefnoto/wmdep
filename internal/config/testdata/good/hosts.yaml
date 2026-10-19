@@ -1,0 +1,20 @@
+hosts:
+  web-1:
+    address: 10.0.0.11
+    port: 2222
+    user: deploy
+    auth: agent
+    tags: [web]
+
+  web-2:
+    address: 10.0.0.12
+    user: deploy
+    auth: agent
+    tags: [web]
+
+  stage-1:
+    address: stage.example.com
+    user: ubuntu
+    auth: key
+    key: ~/.ssh/id_stage
+    tags: [staging]
