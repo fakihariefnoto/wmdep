@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/fakihariefnoto/wmdep/internal/app"
 	"github.com/fakihariefnoto/wmdep/internal/config"
 	"github.com/fakihariefnoto/wmdep/internal/provider"
+	"github.com/fakihariefnoto/wmdep/internal/provider/sshprov"
 	"github.com/fakihariefnoto/wmdep/internal/watch"
 )
 
@@ -664,6 +666,46 @@ func TestUIEditorCancelWritesNothing(t *testing.T) {
 	for _, a := range m.bundle.Apps {
 		if a.ID == "ghost" {
 			t.Fatal("cancel wrote the app")
+		}
+	}
+}
+
+type fakeScanner struct{ items []sshprov.Discovered }
+
+func (f fakeScanner) Discover(context.Context, app.Host) ([]sshprov.Discovered, error) {
+	return f.items, nil
+}
+
+func TestScanImport(t *testing.T) {
+	m := tempModel(t)
+	m = send(t, m, tea.WindowSizeMsg{Width: 140, Height: 42})
+	m.Scanner = fakeScanner{items: []sshprov.Discovered{
+		{Kind: app.KindSystemd, Name: "cron", Detail: "active running"},
+		{Kind: app.KindDocker, Name: "postgres", Detail: "up 2 days"},
+	}}
+
+	cmd := m.startScan("web-1")
+	if cmd == nil {
+		t.Fatal("startScan returned no command")
+	}
+	m = send(t, m, cmd())
+	if m.screen != screenScan || m.scan.loading {
+		t.Fatalf("screen=%v loading=%v", m.screen, m.scan.loading)
+	}
+	if len(m.scan.items) != 2 || len(m.scan.checked) != 2 {
+		t.Fatalf("scan state = %+v", m.scan)
+	}
+
+	m = send(t, m, press("enter"))
+	for _, id := range []string{"cron", "postgres"} {
+		found := false
+		for _, a := range m.bundle.Apps {
+			if a.ID == id {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s not imported: %+v", id, m.bundle.Apps)
 		}
 	}
 }

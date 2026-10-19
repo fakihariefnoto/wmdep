@@ -45,6 +45,7 @@ const (
 	screenServers
 	screenEditor
 	screenHostEditor
+	screenScan
 )
 
 const (
@@ -133,8 +134,10 @@ type Model struct {
 	// header shows so nobody mistakes fake numbers for production.
 	Demo bool
 
-	// Deployer is set by the CLI when a real SSH pool exists.
+	// Deployer and Scanner are set by the CLI when a real SSH pool exists.
 	Deployer Deployer
+	Scanner  Scanner
+	scan     scanState
 	// pendingDeploy arms the two-press deploy confirmation.
 	pendingDeploy string
 
@@ -222,6 +225,9 @@ func (m *Model) targets() []watch.Target {
 		m.screen == screenEditor || m.screen == screenHostEditor {
 		return watch.Build(m.bundle.Apps, m.bundle.Hosts, "", "", "")
 	}
+	if m.screen == screenScan {
+		return nil
+	}
 	switch m.dash.scope {
 	case scopeDeployments:
 		return watch.Build(m.bundle.Apps, m.bundle.Hosts, "", "", "")
@@ -299,6 +305,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, nil
 
+	case scanLoadedMsg:
+		m.scan.loading = false
+		m.scan.items = msg.items
+		m.scan.checked = make([]bool, len(msg.items))
+		for i := range m.scan.checked {
+			m.scan.checked[i] = true
+		}
+		if msg.err != nil {
+			m.scan.err = msg.err.Error()
+		}
+		return m, nil
+
 	case deployDoneMsg:
 		m.setFlash(deploySummary(msg))
 		return m, m.refresh()
@@ -351,6 +369,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleListKey(msg)
 		case screenEditor, screenHostEditor:
 			return m.handleFormKey(msg)
+		case screenScan:
+			return m.handleScanKey(msg)
 		default:
 			return m.handleManageKey(msg)
 		}
@@ -710,6 +730,8 @@ func (m *Model) render() string {
 		return m.dashboardView()
 	case screenDeployments, screenServers:
 		return m.listView()
+	case screenScan:
+		return m.scanView()
 	case screenEditor, screenHostEditor:
 		return m.formView()
 	default:

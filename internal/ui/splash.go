@@ -151,8 +151,9 @@ func (m *Model) activateSplashItem() (tea.Model, tea.Cmd) {
 		m.openList(listServers)
 		return m, m.refresh()
 	case 3:
-		m.openDashboard(scopeAll)
-		m.setFlash("host scan lands in M2b — it needs the SSH discovery pass")
+		m.openList(listServers)
+		m.setFlash("select a host and press s to scan it")
+		return m, m.refresh()
 	case 4:
 		m.openDashboard(scopeAll)
 		m.setFlash("settings land in M6; edit ~/.config/wmdep/config.yaml for now")

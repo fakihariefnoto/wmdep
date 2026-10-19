@@ -289,7 +289,14 @@ func (m *Model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case msg.String() == "t" && m.list.kind == listServers:
 		m.setFlash("connection test lands with the SSH core (M2)")
 	case msg.String() == "s":
-		m.setFlash("host scan lands in M2b")
+		if m.list.kind == listServers {
+			hosts := m.listHosts()
+			if len(hosts) > 0 && m.list.cursor < len(hosts) {
+				return m, m.startScan(hosts[m.list.cursor].ID)
+			}
+			return m, nil
+		}
+		m.setFlash("scan a host from the Servers screen")
 	}
 	return m, nil
 }

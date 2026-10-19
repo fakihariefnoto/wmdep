@@ -60,8 +60,11 @@ in-memory provider for trying the UI without servers.
 Known hosts must exist (`ssh host` once) — wmdep refuses unknown keys. Store a
 password with `wmdep auth set <host>`.
 
-**Next:** M2b host scan UI, M6 SFTP browser/settings, run history, streaming
-deploy output. Release scaffolding (GoReleaser, CI, tap workflow) is in place.
+Host scan works: Servers → select a host → `s` discovers systemd/docker/pm2
+services, checklist import writes valid deployments.
+
+**Next:** M6 SFTP browser/settings/notifications, run history, streaming deploy
+output. Release scaffolding (GoReleaser, CI, tap workflow) is in place.
 
 ## Navigation
 

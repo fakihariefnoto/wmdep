@@ -80,6 +80,7 @@ func runTUI(cmd *cobra.Command, o *opts) error {
 	model.Demo = o.demo
 	if pool != nil {
 		model.Deployer = newDeployer(pool, reg)
+		model.Scanner = scanAdapter{pool: pool}
 	}
 	ui.Version = Version
 
@@ -142,4 +143,11 @@ func (d deployer) Deploy(ctx context.Context, a app.App, h app.Host, p config.Pi
 		}
 	}
 	return res.OK, b.String(), res.Err
+}
+
+// scanAdapter exposes sshprov discovery to the UI.
+type scanAdapter struct{ pool *sshx.Pool }
+
+func (s scanAdapter) Discover(ctx context.Context, h app.Host) ([]sshprov.Discovered, error) {
+	return sshprov.New(s.pool).Discover(ctx, h)
 }

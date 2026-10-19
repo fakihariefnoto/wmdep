@@ -2,7 +2,7 @@
 
 A terminal UI for watching and operating services spread across many servers, over SSH/SFTP.
 
-Status: M1–M3, M5 core complete; M2b (scan UI) and M6 remain
+Status: M1–M3, M5 core, M2b complete; M6 remains
 Target: Go 1.26+, macOS/Linux (Windows best-effort)
 
 ---
@@ -582,7 +582,7 @@ known_hosts (hard stop, actionable error), reuses one client per host, and
 provides Exec, Stream, SFTP, atomic Upload/Download, and ReadDir. `wmdep auth
 set <host>` stores a keyring password. `--demo` keeps the in-memory provider.
 
-### M2b — Host scan (3–4 days)
+### M2b — Host scan (3–4 days) — done
 - Discovery pass per host: `systemctl list-units --type=service --state=running --output=json`, `docker ps --format json`, `docker compose ls --format json`, `pm2 jlist`.
 - Checklist screen: discovered items, already-managed items marked and disabled, `space`/`a`/`n` selection, environment picker.
 - Import selected items through `config.Writer`; id collisions get a stable suffix (`redis`, `redis-2`).
@@ -590,6 +590,11 @@ set <host>` stores a keyring password. `--demo` keeps the in-memory provider.
 - Tests: discovery parsing against golden outputs, dedupe against existing deployments, import produces a valid config.
 
 **Exit:** point scan at a host with systemd and docker services, import three of them, and see them appear on the dashboard without hand-editing YAML.
+
+*Actual:* discovery runs systemctl/docker/pm2 over SSH (missing tools are
+skipped), the checklist supports space/a/n, the target environment cycles with
+`E`, and imports go through the validated writer. Covered by a UI test with a
+fake scanner.
 
 ### M3 — Providers & status (4–5 days) — done (systemd/docker/compose/pm2/command)
 - systemd provider (status, start/stop/restart, logs, metrics via `systemctl show` + `/proc` or `ps`).
