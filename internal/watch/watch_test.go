@@ -32,6 +32,7 @@ func (s *stub) Status(_ context.Context, _ app.App, h app.Host) (app.Status, err
 func (s *stub) Start(context.Context, app.App, app.Host) error   { return nil }
 func (s *stub) Stop(context.Context, app.App, app.Host) error    { return nil }
 func (s *stub) Restart(context.Context, app.App, app.Host) error { return nil }
+func (s *stub) Reload(context.Context, app.App, app.Host) error  { return nil }
 func (s *stub) Logs(context.Context, app.App, app.Host, provider.LogOpts) (io.ReadCloser, error) {
 	return nil, provider.ErrNotSupported
 }

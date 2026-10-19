@@ -138,6 +138,11 @@ func (f *Fake) Stop(_ context.Context, a app.App, host app.Host) error {
 	return nil
 }
 
+// Reload implements Provider; the fake treats it like a restart.
+func (f *Fake) Reload(ctx context.Context, a app.App, host app.Host) error {
+	return f.Restart(ctx, a, host)
+}
+
 // Restart implements Provider.
 func (f *Fake) Restart(_ context.Context, a app.App, host app.Host) error {
 	return f.mutate(a, host, func() { f.setStarted(a.Key(), time.Now()) })

@@ -79,6 +79,15 @@ func (p *SSH) Restart(ctx context.Context, a app.App, host app.Host) error {
 	return p.action(ctx, a, host, "restart")
 }
 
+// Reload asks the supervisor to reload without a full restart. Only systemd has
+// a distinct reload; the rest report unsupported rather than pretending.
+func (p *SSH) Reload(ctx context.Context, a app.App, host app.Host) error {
+	if a.Kind != app.KindSystemd {
+		return provider.ErrNotSupported
+	}
+	return p.action(ctx, a, host, "reload")
+}
+
 func (p *SSH) action(ctx context.Context, a app.App, host app.Host, verb string) error {
 	var argv []string
 	switch a.Kind {

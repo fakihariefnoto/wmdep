@@ -430,6 +430,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleManageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.navNumber(msg.String()) {
+		return m, nil
+	}
 	if m.filtering {
 		return m.updateFilter(msg)
 	}

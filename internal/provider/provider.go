@@ -40,6 +40,7 @@ type Provider interface {
 	Start(ctx context.Context, app app.App, host app.Host) error
 	Stop(ctx context.Context, app app.App, host app.Host) error
 	Restart(ctx context.Context, app app.App, host app.Host) error
+	Reload(ctx context.Context, app app.App, host app.Host) error
 
 	// Logs returns a stream the caller must close. Cancelling ctx must
 	// terminate the remote process, not merely abandon the reader.

@@ -398,7 +398,7 @@ func TestSplashEnterOpensDashboard(t *testing.T) {
 		t.Fatalf("screen = %v, want dashboard", m.screen)
 	}
 	got := viewText(m)
-	for _, want := range []string{"Dashboard", "fleet", "HOSTS", "needs attention", "prod", "staging", "web-1"} {
+	for _, want := range []string{"Dashboard", "fleet", "prod", "needs attention", "prod", "staging", "web-1"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("dashboard missing %q:\n%s", want, got)
 		}

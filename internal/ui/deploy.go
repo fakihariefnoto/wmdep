@@ -33,6 +33,10 @@ func (m *Model) startDeploy() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	return m.startDeployFor(a, h)
+}
+
+func (m *Model) startDeployFor(a app.App, h app.Host) tea.Cmd {
 	if a.Deploy == "" {
 		m.setFlash("no pipeline assigned to " + a.ID + " — edit it and pick one")
 		return nil

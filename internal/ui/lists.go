@@ -245,6 +245,9 @@ func (m *Model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.list.filtering {
 		return m.updateListFilter(msg)
 	}
+	if m.navNumber(msg.String()) {
+		return m, nil
+	}
 	if m.showHelp {
 		switch msg.String() {
 		case "esc", "?":

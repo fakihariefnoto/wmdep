@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"context"
 	"image/color"
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -38,43 +40,49 @@ func (s dashScope) label() string {
 type cardKind int
 
 const (
-	cardEnv cardKind = iota
-	cardHost
+	cardHost cardKind = iota
+	cardApp
 )
 
-// dashCard is a focusable card. Fleet and attention are informational panels,
-// not cards, so they are not in the focus order.
+// dashCard is one focusable item. The dashboard is grouped by host: a host bar
+// followed by one card per deployment on that host.
 type dashCard struct {
 	kind cardKind
 	env  string
 	host string
+	app  string
 }
 
-// dashboard is the card grid state: its scope, focus cursor, and the flattened
-// list of focusable cards built from the bundle.
 type dashboard struct {
 	scope  dashScope
 	cursor int
+	offset int
 	cards  []dashCard
 }
 
-// build recomputes the focusable cards for the current scope.
 func (d *dashboard) build(b *config.Bundle) {
 	d.cards = d.cards[:0]
 
-	if d.scope != scopeServers {
-		for _, env := range b.Envs {
-			d.cards = append(d.cards, dashCard{kind: cardEnv, env: env.Name})
-		}
-	}
-	if d.scope != scopeDeployments {
-		for _, env := range b.Envs {
-			hosts := append([]string(nil), env.Hosts...)
-			sort.Strings(hosts)
-			for _, id := range hosts {
-				if _, ok := b.Hosts[id]; ok {
-					d.cards = append(d.cards, dashCard{kind: cardHost, env: env.Name, host: id})
+	for _, env := range b.Envs {
+		hosts := append([]string(nil), env.Hosts...)
+		sort.Strings(hosts)
+		for _, hostID := range hosts {
+			if _, ok := b.Hosts[hostID]; !ok {
+				continue
+			}
+			d.cards = append(d.cards, dashCard{kind: cardHost, env: env.Name, host: hostID})
+			if d.scope == scopeServers {
+				continue
+			}
+			var apps []app.App
+			for _, a := range b.Apps {
+				if a.Environment == env.Name && a.Host == hostID {
+					apps = append(apps, a)
 				}
+			}
+			sort.SliceStable(apps, func(i, j int) bool { return apps[i].ID < apps[j].ID })
+			for _, a := range apps {
+				d.cards = append(d.cards, dashCard{kind: cardApp, env: env.Name, host: hostID, app: a.ID})
 			}
 		}
 	}
@@ -100,33 +108,195 @@ func (d *dashboard) move(delta int) {
 	d.cursor = clampIndex(d.cursor+delta, len(d.cards))
 }
 
+// dashboardView draws hosts as sections: a host status bar, then that host's
+// deployments as cards. Nav and fleet stay pinned; the host body scrolls.
 func (m *Model) dashboardView() string {
-	th := m.th
-	d := &m.dash
+	sel, _ := m.dash.selected()
 
-	lines := []string{m.navBar(), m.fleetCard()}
+	head := []string{m.navBar(), m.fleetCard()}
+	var body []string
+	focusStart, focusEnd := -1, -1
 
-	if d.scope != scopeServers {
-		lines = append(lines, m.cardRows(cardEnv, true)...)
+	for i := 0; i < len(m.dash.cards); {
+		c := m.dash.cards[i]
+		if c.kind != cardHost {
+			i++
+			continue
+		}
+		start := len(body)
+		if sel == c {
+			focusStart = start
+		}
+		body = append(body, m.hostBar(c.env, c.host, sel == c))
+		if sel == c {
+			focusEnd = len(body)
+		}
+
+		var apps []dashCard
+		j := i + 1
+		for ; j < len(m.dash.cards) && m.dash.cards[j].kind == cardApp; j++ {
+			apps = append(apps, m.dash.cards[j])
+		}
+		if len(apps) > 0 {
+			start = len(body)
+			rows := m.appGrid(apps, sel)
+			body = append(body, rows...)
+			for k, appCard := range apps {
+				if sel == appCard {
+					// One row per `cols` cards; approximate the focused row.
+					cols := m.appCols()
+					focusStart = start + k/cols
+					focusEnd = focusStart + 1
+				}
+			}
+		}
+		i = j
 	}
-	if d.scope != scopeDeployments {
-		lines = append(lines, th.faint.Render("HOSTS"))
-		lines = append(lines, m.cardRows(cardHost, false)...)
-	}
 
-	lines = append(lines, m.attentionRows()...)
+	body = append(body, m.attentionRows()...)
 	activity := m.activityRows()
-	lines = append(lines, m.card("recent runs", activity, m.width, len(activity)+3, false, lipgloss.Color("#1E3A2F")))
+	body = append(body, m.card("recent runs", activity, m.width, len(activity)+3, false, lipgloss.Color("#1E3A2F")))
 
-	// Cards are multi-line blocks, so flatten before clipping: clip() operates
-	// on lines, and a block treated as a single line would be truncated at its
-	// first row.
-	flat := flatten(lines)
-	body := clip(flat, m.width, max(1, m.height-1))
-	return strings.Join(append(body, m.dashFooter()), "\n")
+	bodyH := max(1, m.height-len(head)-1)
+	if focusStart >= 0 {
+		if focusStart < m.dash.offset {
+			m.dash.offset = focusStart
+		}
+		if focusEnd > m.dash.offset+bodyH {
+			m.dash.offset = focusEnd - bodyH
+		}
+	}
+	if maxOff := max(0, len(body)-bodyH); m.dash.offset > maxOff {
+		m.dash.offset = maxOff
+	}
+	if m.dash.offset < 0 {
+		m.dash.offset = 0
+	}
+
+	end := min(len(body), m.dash.offset+bodyH)
+	body = body[m.dash.offset:end]
+
+	out := append(head, body...)
+	out = append(out, m.dashFooter())
+	return strings.Join(clip(flatten(out), m.width, m.height), "\n")
 }
 
-// flatten expands multi-line strings into individual lines.
+func (m *Model) appCols() int {
+	switch {
+	case m.width >= 160:
+		return 4
+	case m.width >= 110:
+		return 3
+	default:
+		return 2
+	}
+}
+
+// hostBar is the section header for one host.
+func (m *Model) hostBar(env, hostID string, focused bool) string {
+	th := m.th
+	h, ok := m.bundle.Hosts[hostID]
+	if !ok {
+		return m.card(hostID, []string{th.err.Render("unknown host")}, m.width, 4, focused, lipgloss.Color("#2A2D3A"))
+	}
+
+	var apps []app.App
+	var states []app.State
+	var cpuSum float64
+	var memSum int64
+	running := 0
+	var issues int
+	for _, a := range m.bundle.Apps {
+		if a.Environment != env || a.Host != hostID {
+			continue
+		}
+		apps = append(apps, a)
+		st := m.status[a.Key()]
+		state := st.State
+		if state == "" {
+			state = app.StateUnknown
+		}
+		if st.Err != nil {
+			state = app.StateFailed
+			issues++
+		}
+		if st.State == app.StateFailed || st.State == app.StateDegraded {
+			issues++
+		}
+		if state == app.StateRunning && st.Err == nil {
+			cpuSum += st.CPU
+			memSum += st.MemBytes
+			running++
+		}
+		states = append(states, state)
+	}
+	worst := worstState(states)
+	avg := 0.0
+	if running > 0 {
+		avg = cpuSum / float64(running)
+	}
+
+	line := th.dim.Render(h.Addr()+" · "+h.User) + "   " +
+		m.th.stateStyle(worst).Render(stateGlyph(worst)+" "+string(worst)) + "   " +
+		th.dim.Render("CPU "+pct(avg)) + "   " + th.dim.Render("MEM "+humanBytes(memSum)) + "   " +
+		th.faint.Render(countLabel(len(apps), "deployment")+" · "+env)
+	if issues > 0 {
+		line += "   " + th.warn.Render(itoa(issues)+" issues")
+	}
+	return m.card(hostID, []string{line}, m.width, 4, focused, lipgloss.Color("#2A2D3A"))
+}
+
+// appGrid lays out one host's deployments as cards.
+func (m *Model) appGrid(cards []dashCard, sel dashCard) []string {
+	cols := min(m.appCols(), len(cards))
+	if cols < 1 {
+		cols = 1
+	}
+	cw := (m.width - (cols - 1)) / cols
+	var out []string
+	for i := 0; i < len(cards); i += cols {
+		var parts []string
+		for j := 0; j < cols && i+j < len(cards); j++ {
+			parts = append(parts, m.appCard(cards[i+j], cw, cards[i+j] == sel))
+		}
+		out = append(out, lipgloss.JoinHorizontal(lipgloss.Top, parts...))
+	}
+	return out
+}
+
+func (m *Model) appCard(c dashCard, w int, focused bool) string {
+	th := m.th
+	var a app.App
+	for _, candidate := range m.bundle.Apps {
+		if candidate.Environment == c.env && candidate.Host == c.host && candidate.ID == c.app {
+			a = candidate
+			break
+		}
+	}
+	st := m.status[a.Key()]
+	state := st.State
+	if state == "" {
+		state = app.StateUnknown
+	}
+	if st.Err != nil {
+		state = app.StateFailed
+	}
+
+	uptime := "-"
+	if state == app.StateRunning {
+		uptime = humanUptime(st.Uptime(time.Now()))
+	}
+	line2 := th.stateStyle(state).Render(stateGlyph(state)+" "+string(state)) + "   " + th.dim.Render(uptime)
+	line3 := th.dim.Render("CPU "+pct(st.CPU)) + "   " + th.dim.Render("MEM "+humanBytes(st.MemBytes))
+	pipeline := a.Deploy
+	if pipeline == "" {
+		pipeline = "no pipeline"
+	}
+	line4 := th.faint.Render(pipeline)
+
+	return m.card(c.app, []string{line2, line3, line4}, w, 6, focused, lipgloss.Color("#1F3A5F"))
+}
+
 func flatten(lines []string) []string {
 	out := make([]string, 0, len(lines))
 	for _, l := range lines {
@@ -142,11 +312,11 @@ func (m *Model) navBar() string {
 		name   string
 		screen screenKind
 	}{
-		{"Dashboard", screenDashboard},
-		{"Deployments", screenDeployments},
-		{"Servers", screenServers},
-		{"Scan", screenScan},
-		{"Settings", screenSettings},
+		{"1 Dashboard", screenDashboard},
+		{"2 Deployments", screenDeployments},
+		{"3 Servers", screenServers},
+		{"4 Scan", screenScan},
+		{"5 Settings", screenSettings},
 	}
 	active := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#12131A")).
 		Background(lipgloss.Color("#FF5FAF")).Padding(0, 1)
@@ -162,7 +332,7 @@ func (m *Model) navBar() string {
 		}
 	}
 	bar := lipgloss.JoinHorizontal(lipgloss.Top, parts...)
-	hint := m.th.faint.Render("tab/←→ move · enter open")
+	hint := m.th.faint.Render("1-5 open · tab/←→ cards · enter select")
 	gap := m.width - lipglossWidth(bar) - lipglossWidth(hint) - 1
 	if gap < 1 {
 		gap = 1
@@ -214,13 +384,89 @@ func (m *Model) dashHeader() string {
 }
 
 func (m *Model) dashFooter() string {
-	return m.th.dim.Render("↑↓←→ cards · enter open · a add · e edit · x delete · s scan · r refresh · ? help")
+	return m.th.dim.Render("enter open · r restart · x start/stop · u reload · d deploy · l logs · ? help")
+}
+
+// navNumber maps 1-5 to the top-level screens, so the tab bar is real
+// navigation rather than decoration.
+func (m *Model) navNumber(k string) bool {
+	switch k {
+	case "1":
+		m.openDashboard(scopeAll)
+	case "2":
+		m.openList(listDeployments)
+	case "3":
+		m.openList(listServers)
+	case "4":
+		m.openList(listServers)
+		m.setFlash("select a host and press s to scan")
+	case "5":
+		m.screen = screenSettings
+		m.returnTo = screenDashboard
+	default:
+		return false
+	}
+	return true
+}
+
+// dashSelectedApp resolves the app behind the focused card, if any.
+func (m *Model) dashSelectedApp() (app.App, app.Host, bool) {
+	c, ok := m.dash.selected()
+	if !ok || c.kind != cardApp {
+		return app.App{}, app.Host{}, false
+	}
+	h, ok := m.bundle.Hosts[c.host]
+	if !ok {
+		return app.App{}, app.Host{}, false
+	}
+	for _, a := range m.bundle.Apps {
+		if a.Environment == c.env && a.Host == c.host && a.ID == c.app {
+			return a, h, true
+		}
+	}
+	return app.App{}, app.Host{}, false
+}
+
+// actionFor runs a start/stop/restart/reload for an explicit app.
+func (m *Model) actionFor(a app.App, h app.Host, verb string) tea.Cmd {
+	prov, err := m.reg.For(a)
+	if err != nil {
+		m.setFlash(err.Error())
+		return nil
+	}
+	keyv := a.Key()
+	st := m.status[keyv]
+	timeout := m.bundle.Defaults().SSHTimeout.Std()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		var err error
+		name := verb
+		switch verb {
+		case "restart":
+			err = prov.Restart(ctx, a, h)
+		case "reload":
+			err = prov.Reload(ctx, a, h)
+		case "toggle":
+			if st.State == app.StateRunning {
+				name = "stop"
+				err = prov.Stop(ctx, a, h)
+			} else {
+				name = "start"
+				err = prov.Start(ctx, a, h)
+			}
+		}
+		return actionDoneMsg{key: keyv, name: name, err: err}
+	}
 }
 
 // handleDashboardKey drives the card grid. Cards are a flat focus list, so the
 // arrows and tab do the same thing; that keeps the grid navigable without
 // spatial hit-testing.
 func (m *Model) handleDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.navNumber(msg.String()) {
+		return m, nil
+	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		return m, tea.Quit
@@ -261,7 +507,23 @@ func (m *Model) handleDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if c.kind == cardHost {
 			return m, m.openManage(c.env, c.host, "")
 		}
-		return m, m.openManage(c.env, "", "")
+		return m, m.openManage(c.env, c.host, c.app)
+	}
+
+	// Service actions work directly from a focused app card.
+	if a, h, ok := m.dashSelectedApp(); ok {
+		switch msg.String() {
+		case "r":
+			return m, m.actionFor(a, h, "restart")
+		case "x":
+			return m, m.actionFor(a, h, "toggle")
+		case "u":
+			return m, m.actionFor(a, h, "reload")
+		case "l":
+			return m, m.openManage(a.Environment, a.Host, a.ID)
+		case "d":
+			return m, m.startDeployFor(a, h)
+		}
 	}
 
 	switch msg.String() {
@@ -308,208 +570,6 @@ func (m *Model) fleetCard() string {
 }
 
 // cardRows lays out the cards of one kind in a grid and marks the focused one.
-func (m *Model) cardRows(kind cardKind, envSection bool) []string {
-	var cards []dashCard
-	for _, c := range m.dash.cards {
-		if c.kind == kind {
-			cards = append(cards, c)
-		}
-	}
-	if len(cards) == 0 {
-		return nil
-	}
-
-	maxCols := 2
-	if m.width >= 130 {
-		maxCols = 3
-	}
-	if m.width < 90 {
-		maxCols = 1
-	}
-	if !envSection && m.width >= 90 {
-		maxCols = 3
-	}
-	cols := min(len(cards), maxCols)
-	cw := (m.width - (cols - 1)) / cols
-
-	var out []string
-	for i := 0; i < len(cards); i += cols {
-		var parts []string
-		for j := 0; j < cols && i+j < len(cards); j++ {
-			c := cards[i+j]
-			focused := false
-			if sel, ok := m.dash.selected(); ok {
-				focused = sel == c
-			}
-			parts = append(parts, m.cardView(c, cw, focused))
-		}
-		out = append(out, lipgloss.JoinHorizontal(lipgloss.Top, parts...))
-	}
-	return out
-}
-
-func (m *Model) cardView(c dashCard, w int, focused bool) string {
-	if c.kind == cardEnv {
-		return m.envCard(c.env, w, focused)
-	}
-	return m.hostCard(c.env, c.host, w, focused)
-}
-
-func (m *Model) envCard(env string, w int, focused bool) string {
-	th := m.th
-
-	var apps []app.App
-	var up, issues int
-	for _, a := range m.bundle.Apps {
-		if a.Environment != env {
-			continue
-		}
-		apps = append(apps, a)
-		st := m.status[a.Key()]
-		if st.Err != nil || st.State == app.StateFailed || st.State == app.StateDegraded {
-			issues++
-		}
-		if st.State == app.StateRunning && st.Err == nil {
-			up++
-		}
-	}
-
-	hosts := m.bundle.HostsOf(env)
-	hostNames := make([]string, 0, len(hosts))
-	for _, h := range hosts {
-		hostNames = append(hostNames, h.ID)
-	}
-
-	status := th.ok.Render("● healthy")
-	if issues > 0 {
-		status = th.warn.Render("▲ " + itoa(issues) + " issues")
-	}
-
-	var cpuSum float64
-	var memSum int64
-	running := 0
-	for _, a := range apps {
-		st := m.status[a.Key()]
-		if st.Err == nil && st.State == app.StateRunning {
-			cpuSum += st.CPU
-			memSum += st.MemBytes
-			running++
-		}
-	}
-	avg := 0.0
-	if running > 0 {
-		avg = cpuSum / float64(running)
-	}
-
-	lines := []string{
-		th.bold.Render(countLabel(len(apps), "deployment")) + "   " + status,
-		th.dim.Render(strings.Join(hostNames, " · ")),
-		m.appChips(apps, w-4),
-		th.dim.Render("CPU "+pct(avg)) + "   " + th.dim.Render("MEM "+humanBytes(memSum)),
-	}
-	return m.card(env, lines, w, 7, focused, lipgloss.Color("#1F3A5F"))
-}
-
-// appChips renders up to three app states on one line, with a +N remainder.
-func (m *Model) appChips(apps []app.App, width int) string {
-	const maxChips = 3
-	var parts []string
-	for i, a := range apps {
-		if i >= maxChips {
-			break
-		}
-		st := m.status[a.Key()]
-		state := st.State
-		if state == "" {
-			state = app.StateUnknown
-		}
-		if st.Err != nil {
-			state = app.StateFailed
-		}
-		label := stateGlyph(state) + " " + a.ID
-		parts = append(parts, m.th.stateStyle(state).Render(label))
-	}
-	if len(apps) > maxChips {
-		parts = append(parts, m.th.faint.Render("+"+itoa(len(apps)-maxChips)))
-	}
-	line := strings.Join(parts, "  ")
-	return ansiTruncate(line, width)
-}
-
-func (m *Model) hostCard(env, hostID string, w int, focused bool) string {
-	th := m.th
-	h, ok := m.bundle.Hosts[hostID]
-	if !ok {
-		return m.box(hostID, []string{th.err.Render("unknown host")}, w, 6, focused)
-	}
-
-	var apps []app.App
-	var issues int
-	var worst app.Status
-	worstStateValue := app.StateUnknown
-	for _, a := range m.bundle.Apps {
-		if a.Environment != env || a.Host != hostID {
-			continue
-		}
-		apps = append(apps, a)
-		st := m.status[a.Key()]
-		if st.Err != nil || st.State == app.StateFailed || st.State == app.StateDegraded {
-			issues++
-			if stateRank(st.State) > stateRank(worstStateValue) || st.Err != nil {
-				worst = st
-				worstStateValue = st.State
-			}
-		}
-	}
-
-	line2 := th.bold.Render(itoa(len(apps)) + " dep")
-	switch {
-	case hasAnyErr(m.status, env, hostID):
-		line2 += "   " + th.err.Render("unreachable")
-	case issues > 0:
-		line2 += "   " + th.warn.Render(itoa(issues)+" issue")
-	default:
-		line2 += "   " + th.ok.Render("healthy")
-	}
-
-	detail := th.faint.Render("no deployments")
-	if issues > 0 {
-		reason := worst.ErrText()
-		if reason == "" {
-			reason = worst.Detail
-		}
-		if reason == "" {
-			reason = string(worst.State)
-		}
-		detail = m.th.stateStyle(worstStateValue).Render(stateGlyph(worstStateValue) + " " + truncate(reason, w-8))
-	} else if len(apps) > 0 {
-		detail = th.ok.Render("● " + apps[0].ID + " running")
-	}
-
-	var cpuSum float64
-	var memSum int64
-	running := 0
-	for _, a := range apps {
-		st := m.status[a.Key()]
-		if st.Err == nil && st.State == app.StateRunning {
-			cpuSum += st.CPU
-			memSum += st.MemBytes
-			running++
-		}
-	}
-	avg := 0.0
-	if running > 0 {
-		avg = cpuSum / float64(running)
-	}
-
-	lines := []string{
-		th.dim.Render(h.Addr() + " · " + h.User),
-		line2,
-		th.dim.Render("CPU "+pct(avg)) + "   " + th.dim.Render("MEM "+humanBytes(memSum)) + "   " + detail,
-	}
-	return m.card(hostID, lines, w, 6, focused, lipgloss.Color("#2A2D3A"))
-}
-
 // attentionRows lists every deployment that is failing, degraded, or
 // unreachable, worst first.
 func (m *Model) attentionRows() []string {
