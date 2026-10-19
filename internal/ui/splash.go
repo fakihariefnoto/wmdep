@@ -49,23 +49,24 @@ func (m *Model) splashView() string {
 	th := m.th
 	items := splashItems()
 
-	// Logo: every row is padded to the same width, then the whole logo is
-	// centered on screen. Rows are never mixed with the menu in one block, so a
-	// wide footer cannot pull the art off-center.
-	art := make([]string, 0, len(wordmark))
+	// Layout is done on plain text (rune counts) and styling is applied after,
+	// so ANSI escapes and wide-glyph measurement can never shift a row.
 	logoW := 0
 	for _, l := range wordmark {
-		if n := lipglossWidth(strings.TrimRight(l, " ")); n > logoW {
+		if n := len([]rune(strings.TrimRight(l, " "))); n > logoW {
 			logoW = n
 		}
 	}
+	logoLeft := max(0, (m.width-logoW)/2)
+
 	gradient := []string{"#7D56F4", "#9557F0", "#B25AE8", "#D05CDF", "#EA5ED4", "#FF5FAF"}
 	if !th.dark {
 		gradient = []string{"#4B2FA8", "#6536B8", "#7C3EC4", "#9346CE", "#A94ED6", "#C2247A"}
 	}
+	var art []string
 	for i, l := range wordmark {
 		style := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(gradient[min(i, len(gradient)-1)]))
-		art = append(art, center(style.Render(strings.TrimRight(l, " ")), logoW))
+		art = append(art, strings.Repeat(" ", logoLeft)+style.Render(l))
 	}
 
 	menu := make([]string, 0, len(items))
@@ -84,20 +85,17 @@ func (m *Model) splashView() string {
 		}
 	}
 
-	version := Version
-	if version == "" || version == "dev" {
-		version = "dev"
-	} else {
-		version = "v" + version
-	}
+	version := versionLabel()
+
+	strip := "────  Watch My Deployment  ────"
+	desc := "services across many servers, over SSH and SFTP"
+	footerText := "↑/k ↓/j move · enter open · ? help · q quit   ·   " + version
 
 	var out []string
-	for _, line := range art {
-		out = append(out, center(line, m.width))
-	}
+	out = append(out, art...)
 	out = append(out, "")
-	out = append(out, center(th.accent.Render("────  Watch My Deployment  ────"), m.width))
-	out = append(out, center(th.dim.Render("services across many servers, over SSH and SFTP"), m.width))
+	out = append(out, plainCentered(th.accent, strip, m.width))
+	out = append(out, plainCentered(th.dim, desc, m.width))
 	out = append(out, "")
 
 	left := max(0, (m.width-menuW)/2)
@@ -106,9 +104,7 @@ func (m *Model) splashView() string {
 	}
 
 	out = append(out, "")
-	footer := th.faint.Render("↑/k ↓/j move · enter open · ? help · q quit")
-	gap := max(2, m.width-lipglossWidth(footer)-lipglossWidth(version)-2)
-	out = append(out, footer+strings.Repeat(" ", gap)+th.faint.Render(version))
+	out = append(out, plainCentered(th.faint, footerText, m.width))
 
 	// Each line is padded to the full terminal width so vertical centering
 	// never shifts a row horizontally.
@@ -118,13 +114,24 @@ func (m *Model) splashView() string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Center, strings.Join(out, "\n"))
 }
 
-// center pads a line so its visible text is centered inside width.
-func center(line string, width int) string {
-	n := lipglossWidth(line)
-	if n >= width {
-		return line
+// versionLabel avoids showing a bare git hash as if it were a release.
+func versionLabel() string {
+	v := strings.TrimPrefix(Version, "v")
+	if v == "" || v == "dev" || !strings.Contains(v, ".") {
+		return "dev"
 	}
-	return strings.Repeat(" ", (width-n)/2) + line
+	return "v" + v
+}
+
+// plainCentered centers plain text using rune counts, then styles it. Measuring
+// the styled string is what made the logo drift: trailing padding and ANSI
+// resets made the computed width differ per row.
+func plainCentered(style lipgloss.Style, text string, width int) string {
+	n := len([]rune(text))
+	if n >= width {
+		return style.Render(text)
+	}
+	return strings.Repeat(" ", (width-n)/2) + style.Render(text)
 }
 
 // padTo right-pads an ANSI-styled line to width.
