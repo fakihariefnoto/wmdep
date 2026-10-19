@@ -29,6 +29,7 @@ type listState struct {
 	query         string
 	filtering     bool
 	pendingDelete string
+	confirm       string
 }
 
 func (m *Model) openList(kind listKind) {
@@ -252,6 +253,12 @@ func (m *Model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Typing while a delete is armed feeds the production confirmation.
+	if m.list.pendingDelete != "" && msg.Text != "" && msg.String() != "x" {
+		m.list.confirm += msg.Text
+		return m, nil
+	}
+
 	n := m.listLen()
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -286,6 +293,11 @@ func (m *Model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.startDuplicate()
 	case msg.String() == "x":
 		return m.deleteSelected()
+	case msg.String() == "f" && m.list.kind == listServers:
+		hosts := m.listHosts()
+		if len(hosts) > 0 && m.list.cursor < len(hosts) {
+			return m, m.openFiles(hosts[m.list.cursor].ID)
+		}
 	case msg.String() == "t" && m.list.kind == listServers:
 		m.setFlash("connection test lands with the SSH core (M2)")
 	case msg.String() == "s":
@@ -441,7 +453,16 @@ func (m *Model) deleteSelected() (tea.Model, tea.Cmd) {
 	a := apps[m.list.cursor]
 	if m.list.pendingDelete != a.Key().String() {
 		m.list.pendingDelete = a.Key().String()
-		m.setFlash("press x again to delete " + a.ID + " from " + a.Environment)
+		m.list.confirm = ""
+		if a.Environment == "prod" {
+			m.setFlash("type " + a.ID + " then press x to delete from prod")
+		} else {
+			m.setFlash("press x again to delete " + a.ID + " from " + a.Environment)
+		}
+		return m, nil
+	}
+	if a.Environment == "prod" && m.list.confirm != a.ID {
+		m.setFlash("type " + a.ID + " then press x to confirm")
 		return m, nil
 	}
 	w := config.NewWriter(m.bundle)
@@ -468,6 +489,11 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "esc":
+		if f.dirty && !f.confirmEsc {
+			f.confirmEsc = true
+			f.err = "unsaved changes — press esc again to discard"
+			return m, nil
+		}
 		m.screen = back
 		m.form.err = ""
 		return m, nil
@@ -480,18 +506,22 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		f.move(-1)
 		return m, nil
 	case "enter", "right", "left":
+		f.dirty = true
 		if msg.String() == "left" {
 			f.cycle(-1)
 		} else {
 			f.cycle(1)
 		}
+		m.applyTemplate()
 		return m, nil
 	case "backspace":
+		f.dirty = true
 		f.backspace()
 		return m, nil
 	}
 
 	if msg.Text != "" {
+		f.dirty = true
 		f.insert(msg.Text)
 	}
 	return m, nil
@@ -525,6 +555,7 @@ func (m *Model) saveForm(back screenKind) (tea.Model, tea.Cmd) {
 		f.err = err.Error()
 		return m, nil
 	}
+	f.dirty = false
 	m.screen = back
 	m.setFlash(f.title + " saved")
 	return m, m.refresh()
@@ -548,4 +579,32 @@ func (m *Model) reloadConfig() error {
 	m.tree.rebuild(b, m.status)
 	m.rebuild()
 	return nil
+}
+
+// applyTemplate prefills the form when the template field changes.
+func (m *Model) applyTemplate() {
+	f := &m.form
+	if f.kind != "deployment" || f.cursor >= len(f.fields) || f.fields[f.cursor].label != "template" {
+		return
+	}
+	id := strings.TrimSpace(f.value("id"))
+	if id == "" {
+		id = "app"
+	}
+	switch f.value("template") {
+	case "go-systemd", "node-systemd":
+		port := "8080"
+		if f.value("template") == "node-systemd" {
+			port = "3000"
+		}
+		f.set("provider", "systemd")
+		f.set("target", id+".service")
+		f.set("workdir", "/srv/"+id)
+		f.set("health", "http")
+		f.set("health target", "http://127.0.0.1:"+port+"/health")
+		f.set("expect", "200")
+	case "docker":
+		f.set("provider", "docker")
+		f.set("target", id)
+	}
 }

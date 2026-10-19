@@ -19,6 +19,7 @@ import (
 	"github.com/fakihariefnoto/wmdep/internal/app"
 	"github.com/fakihariefnoto/wmdep/internal/config"
 	"github.com/fakihariefnoto/wmdep/internal/provider"
+	"github.com/fakihariefnoto/wmdep/internal/store"
 	"github.com/fakihariefnoto/wmdep/internal/watch"
 )
 
@@ -46,6 +47,9 @@ const (
 	screenEditor
 	screenHostEditor
 	screenScan
+	screenDeployLog
+	screenSettings
+	screenFiles
 )
 
 const (
@@ -135,9 +139,15 @@ type Model struct {
 	Demo bool
 
 	// Deployer and Scanner are set by the CLI when a real SSH pool exists.
-	Deployer Deployer
-	Scanner  Scanner
-	scan     scanState
+	Deployer      Deployer
+	Scanner       Scanner
+	scan          scanState
+	Runs          *store.Runs
+	Filer         Filer
+	files         filesState
+	deployLog     string
+	deployApp     string
+	deployStarted time.Time
 	// pendingDeploy arms the two-press deploy confirmation.
 	pendingDeploy string
 
@@ -305,6 +315,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, nil
 
+	case filesLoadedMsg:
+		m.files.loading = false
+		m.files.entries = msg.entries
+		m.files.cursor = 0
+		if msg.err != nil {
+			m.files.err = msg.err.Error()
+		} else {
+			m.files.err = ""
+		}
+		return m, nil
+
+	case filesDownloadMsg:
+		if msg.err != nil {
+			m.setFlash("download failed: " + msg.err.Error())
+		} else {
+			m.setFlash("downloaded " + msg.name + " to the current directory")
+		}
+		return m, nil
+
 	case scanLoadedMsg:
 		m.scan.loading = false
 		m.scan.items = msg.items
@@ -318,7 +347,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case deployDoneMsg:
+		m.deployLog = msg.out
+		m.deployApp = msg.app.ID
+		duration := msg.when.Sub(m.deployStarted).Round(time.Second)
+		if m.Runs != nil {
+			_ = m.Runs.Append(store.Run{
+				Time: msg.when, App: msg.app.ID, Env: msg.app.Environment,
+				Host: msg.app.Host, Pipeline: msg.app.Deploy, OK: msg.ok,
+				Duration: duration.String(),
+				Output:   msg.out,
+			})
+		}
 		m.setFlash(deploySummary(msg))
+		m.screen = screenDeployLog
+		if !msg.ok {
+			// Terminal bell on failure; harmless when the terminal ignores it.
+			return m, tea.Batch(m.refresh(), tea.Raw("\a"))
+		}
 		return m, m.refresh()
 
 	case actionDoneMsg:
@@ -371,6 +416,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleFormKey(msg)
 		case screenScan:
 			return m.handleScanKey(msg)
+		case screenDeployLog:
+			return m.handleDeployLogKey(msg)
+		case screenSettings:
+			return m.handleSettingsKey(msg)
+		case screenFiles:
+			return m.handleFilesKey(msg)
 		default:
 			return m.handleManageKey(msg)
 		}
@@ -470,7 +521,10 @@ func (m *Model) handleManageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Stop):
 			return m, m.action("toggle")
 		case key.Matches(msg, m.keys.Files):
-			m.setFlash("SFTP browser lands in M6")
+			if a, h, ok := m.selectedApp(); ok {
+				_ = h
+				return m, m.openFiles(a.Host)
+			}
 			return m, nil
 		case key.Matches(msg, m.keys.Logs):
 			m.focus = focusLogs
@@ -732,6 +786,12 @@ func (m *Model) render() string {
 		return m.listView()
 	case screenScan:
 		return m.scanView()
+	case screenDeployLog:
+		return m.deployLogView()
+	case screenSettings:
+		return m.settingsView()
+	case screenFiles:
+		return m.filesView()
 	case screenEditor, screenHostEditor:
 		return m.formView()
 	default:

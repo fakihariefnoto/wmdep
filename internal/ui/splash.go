@@ -78,8 +78,13 @@ func (m *Model) splashView() string {
 		version = "v" + version
 	}
 
+	// Logo, then a centered title strip, then the one-line purpose. The strip
+	// is the visual anchor: everything below it is left-aligned with the logo.
 	lines := append([]string{}, art...)
-	lines = append(lines, "", th.dim.Render("watch my deployment  ·  services across many servers, over SSH"), "")
+	lines = append(lines, "")
+	lines = append(lines, center(th.accent.Render("────  Watch My Deployment  ────"), 56))
+	lines = append(lines, center(th.dim.Render("services across many servers, over SSH and SFTP"), 56))
+	lines = append(lines, "")
 	lines = append(lines, menu...)
 
 	// The footer is a single line with the version pinned to the same right
@@ -89,6 +94,15 @@ func (m *Model) splashView() string {
 	lines = append(lines, "", keys+strings.Repeat(" ", padW+2)+th.faint.Render(version))
 
 	return renderCenteredBlock(m.width, m.height, lines)
+}
+
+// center pads a line so its visible text is centered inside width.
+func center(line string, width int) string {
+	n := lipglossWidth(line)
+	if n >= width {
+		return line
+	}
+	return strings.Repeat(" ", (width-n)/2) + line
 }
 
 // blockWidth is the widest line, so callers can right-align a footer.
@@ -155,8 +169,8 @@ func (m *Model) activateSplashItem() (tea.Model, tea.Cmd) {
 		m.setFlash("select a host and press s to scan it")
 		return m, m.refresh()
 	case 4:
-		m.openDashboard(scopeAll)
-		m.setFlash("settings land in M6; edit ~/.config/wmdep/config.yaml for now")
+		m.screen = screenSettings
+		m.returnTo = screenSplash
 	case 5:
 		return m, tea.Quit
 	}

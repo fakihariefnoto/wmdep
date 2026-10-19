@@ -329,12 +329,29 @@ func (m *Model) envCard(env string, w int, focused bool) string {
 		status = th.warn.Render("▲ " + itoa(issues) + " issues")
 	}
 
+	var cpuSum float64
+	var memSum int64
+	running := 0
+	for _, a := range apps {
+		st := m.status[a.Key()]
+		if st.Err == nil && st.State == app.StateRunning {
+			cpuSum += st.CPU
+			memSum += st.MemBytes
+			running++
+		}
+	}
+	avg := 0.0
+	if running > 0 {
+		avg = cpuSum / float64(running)
+	}
+
 	lines := []string{
 		th.bold.Render(countLabel(len(apps), "deployment")) + "   " + status,
 		th.dim.Render(strings.Join(hostNames, " · ")),
 		m.appChips(apps, w-4),
+		th.dim.Render("CPU "+pct(avg)) + "   " + th.dim.Render("MEM "+humanBytes(memSum)),
 	}
-	return m.box(env, lines, w, 6, focused)
+	return m.box(env, lines, w, 7, focused)
 }
 
 // appChips renders up to three app states on one line, with a +N remainder.
@@ -413,12 +430,29 @@ func (m *Model) hostCard(env, hostID string, w int, focused bool) string {
 		detail = th.ok.Render("● " + apps[0].ID + " running")
 	}
 
+	var cpuSum float64
+	var memSum int64
+	running := 0
+	for _, a := range apps {
+		st := m.status[a.Key()]
+		if st.Err == nil && st.State == app.StateRunning {
+			cpuSum += st.CPU
+			memSum += st.MemBytes
+			running++
+		}
+	}
+	avg := 0.0
+	if running > 0 {
+		avg = cpuSum / float64(running)
+	}
+
 	lines := []string{
 		th.dim.Render(h.Addr() + " · " + h.User),
 		line2,
+		th.dim.Render("CPU "+pct(avg)) + "   " + th.dim.Render("MEM "+humanBytes(memSum)),
 		detail,
 	}
-	return m.box(hostID, lines, w, 6, focused)
+	return m.box(hostID, lines, w, 7, focused)
 }
 
 // attentionRows lists every deployment that is failing, degraded, or

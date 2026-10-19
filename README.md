@@ -63,8 +63,13 @@ password with `wmdep auth set <host>`.
 Host scan works: Servers → select a host → `s` discovers systemd/docker/pm2
 services, checklist import writes valid deployments.
 
-**Next:** M6 SFTP browser/settings/notifications, run history, streaming deploy
-output. Release scaffolding (GoReleaser, CI, tap workflow) is in place.
+**Also in:** SFTP browser (list, navigate, download; upload is next), Settings
+screen, deploy output pane, run history with an Activity card, deploy templates,
+dirty-form guard, and typed prod-delete confirmation.
+
+**Next:** SFTP upload/rename/delete, desktop notifications, streamed deploy
+steps (the pane currently shows the final output). Release scaffolding
+(GoReleaser, CI, tap workflow) is in place.
 
 ## Navigation
 

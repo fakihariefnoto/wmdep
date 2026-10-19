@@ -2,7 +2,7 @@
 
 A terminal UI for watching and operating services spread across many servers, over SSH/SFTP.
 
-Status: M1–M3, M5 core, M2b complete; M6 remains
+Status: M1–M3, M5 (incl. history/UI), M2b, M6 core complete
 Target: Go 1.26+, macOS/Linux (Windows best-effort)
 
 ---
@@ -629,7 +629,7 @@ health waits, and rollback-on-failure; covered by fake-remote tests. The UI arms
 on the first `d` and runs on the second, then reports the result in the status
 bar. Run history (SQLite) and a streaming deploy pane are still open.
 
-### M6 — Files & polish (4–5 days)
+### M6 — Files & polish (4–5 days) — core done
 - SFTP browser: tree/list, upload/download with progress, rename/delete (confirm), edit in `$EDITOR` via temp file + atomic write.
 - Command palette, global filter, themes (dark/light), configurable keybindings.
 - Notifications (desktop + terminal bell) on deploy completion/failure.

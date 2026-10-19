@@ -56,6 +56,7 @@ func (m *Model) startDeploy() tea.Cmd {
 	m.pendingDeploy = ""
 
 	dep := m.Deployer
+	m.deployStarted = time.Now()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()

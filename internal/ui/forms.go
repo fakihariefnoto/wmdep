@@ -42,6 +42,8 @@ type form struct {
 	cursor     int
 	err        string
 	originalID string
+	dirty      bool
+	confirmEsc bool
 }
 
 func (f *form) field(label string) *formField {
@@ -125,6 +127,7 @@ func (f *form) optionsFor(label string, options []string) {
 // deploymentFormFields builds the provider-aware field list.
 func deploymentFormFields() []formField {
 	return []formField{
+		{label: "template", options: []string{"blank", "go-systemd", "node-systemd", "docker"}, help: "prefill provider, target, workdir, health"},
 		{label: "id", help: "unique within the environment"},
 		{label: "env", options: nil, help: "environment file to write"},
 		{label: "host", options: nil, help: "host from hosts.yaml"},

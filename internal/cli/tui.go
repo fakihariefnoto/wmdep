@@ -15,6 +15,7 @@ import (
 	"github.com/fakihariefnoto/wmdep/internal/provider"
 	"github.com/fakihariefnoto/wmdep/internal/provider/sshprov"
 	"github.com/fakihariefnoto/wmdep/internal/sshx"
+	"github.com/fakihariefnoto/wmdep/internal/store"
 	"github.com/fakihariefnoto/wmdep/internal/ui"
 )
 
@@ -78,9 +79,11 @@ func runTUI(cmd *cobra.Command, o *opts) error {
 
 	model := ui.New(bundle, reg)
 	model.Demo = o.demo
+	model.Runs = store.Open(store.DefaultPath())
 	if pool != nil {
 		model.Deployer = newDeployer(pool, reg)
 		model.Scanner = scanAdapter{pool: pool}
+		model.Filer = fileAdapter{pool: pool}
 	}
 	ui.Version = Version
 
@@ -150,4 +153,15 @@ type scanAdapter struct{ pool *sshx.Pool }
 
 func (s scanAdapter) Discover(ctx context.Context, h app.Host) ([]sshprov.Discovered, error) {
 	return sshprov.New(s.pool).Discover(ctx, h)
+}
+
+// fileAdapter exposes SFTP listing/download to the UI.
+type fileAdapter struct{ pool *sshx.Pool }
+
+func (f fileAdapter) ReadDir(ctx context.Context, h app.Host, dir string) ([]os.FileInfo, error) {
+	return f.pool.ReadDir(ctx, h, dir)
+}
+
+func (f fileAdapter) Download(ctx context.Context, h app.Host, remote, local string) error {
+	return f.pool.Download(ctx, h, remote, local)
 }

@@ -558,6 +558,7 @@ func TestUIAddDeployment(t *testing.T) {
 	if m.screen != screenEditor {
 		t.Fatalf("screen = %v, want editor", m.screen)
 	}
+	m = send(t, m, press("tab")) // skip template
 	m = typeText(t, m, "cron")
 	m = send(t, m, press("tab")) // env
 	m = send(t, m, press("tab")) // host
@@ -606,6 +607,7 @@ func TestUIDeleteDeploymentConfirms(t *testing.T) {
 	if len(m.bundle.Apps) != before {
 		t.Fatal("first x must not delete")
 	}
+	m = typeText(t, m, "api")  // prod requires the id
 	m = send(t, m, press("x")) // confirm
 	if len(m.bundle.Apps) != before-1 {
 		t.Fatalf("apps = %d, want %d", len(m.bundle.Apps), before-1)
@@ -657,8 +659,10 @@ func TestUIEditorCancelWritesNothing(t *testing.T) {
 	m = send(t, m, press("j")) // splash menu: Deployments
 	m = send(t, m, press("enter"))
 	m = send(t, m, press("a"))
+	m = send(t, m, press("tab")) // skip template
 	m = typeText(t, m, "ghost")
-	m = send(t, m, press("esc"))
+	m = send(t, m, press("esc")) // prompt
+	m = send(t, m, press("esc")) // discard
 
 	if m.screen != screenDeployments {
 		t.Fatalf("screen = %v, want deployments", m.screen)
