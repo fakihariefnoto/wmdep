@@ -34,36 +34,52 @@ Deployments are rarely one app on one box. Typical reality:
 | **Deploy** | A named pipeline (build → upload → activate → verify) targeting one app or a group |
 | **Run** | One execution of a deploy or command, recorded with output and result |
 
-### Primary views
+### Primary view (shipped in M1)
+
+Three panes plus a log tail, no tabs yet:
 
 ```
-┌ hosts ─────────┬ apps / status ──────────────────────┬ detail ────────────┐
-│ ▾ prod         │ ● api        running   2m  12%  340M│ api@web-1          │
-│   web-1        │ ● worker     running   2m   4%  120M│ systemd: api.service│
-│   web-2        │ ○ cron       stopped   —    —     — │ uptime 4d 2h       │
-│ ▸ staging      │ ▲ db-proxy   degraded  —    —     — │ last deploy 2h ago │
-│   stage-1      │                                     │                    │
-├────────────────┴─────────────────────────────────────┴────────────────────┤
-│ logs: api@web-1                                       [follow] [search]   │
-│ 12:04:11 INFO  request handled path=/health 200 3ms                       │
-│ 12:04:12 WARN  pool saturated 18/20                                        │
-├────────────────────────────────────────────────────────────────────────────┤
-│ [d]eploy [r]estart [s]top [l]ogs [f]iles [enter] detail [?] help          │
-└────────────────────────────────────────────────────────────────────────────┘
+┌ hosts ──────────┬ apps · prod ─────────────────────────┬ detail ─────────────┐
+│ ✕ ▾ prod     3  │ APP      HOST     STATE      UP      │ api                 │
+│ ●   web-1    2  │ api      web-1    ▲ degraded -       │ prod · web-1 · systemd│
+│ ✕   web-2    1  │ worker   web-1    ● running  2h10m   │ target api.service  │
+│ ? ▾ staging  1  │ redis    web-2    ● running  3h04m   │ deploy api-prod     │
+│ ?   stage-1  1  │                                     │ health http …       │
+├─────────────────┴─────────────────────────────────────┴─────────────────────┤
+│ logs · prod/web-1/api · following                                           │
+│ 18:22:01 INFO  request handled path=/api/7 status=200 dur=31ms              │
+│ 18:22:03 ERROR upstream redis timeout after 2s                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ pane: hosts   tab next pane • ↑/k up • ↓/j down • d deploy • r restart …    │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Views (tabs within the app): **Overview**, **Logs**, **Files** (SFTP browser), **Deploys** (history), **Settings**.
+Planned views (not built yet): **Deploys** history (M5) and **Settings** (M6).
+The Files browser is a focused mode (M6), not a tab.
 
 ### Key interactions
 
-- `j/k` / arrows move; `enter` opens app detail; `tab` cycles panes
-- `d` deploy (with confirm + dry-run preview), `r` restart, `s` stop/start toggle
-- `l` follow logs, `/` filter, `c` clear, `y` copy selected line
-- `f` SFTP browser: navigate, upload, download, edit-in-$EDITOR
-- `g` global filter (`host:web-* app:api env:prod`)
-- `:` command palette (`deploy api to web-2`, `restart all staging`)
-- `?` help overlay with all bindings
-- Headless equivalents: `wmdep status`, `wmdep logs api@web-1`, `wmdep deploy api --env prod`
+Shipped in M1 (and documented in README):
+
+| Key | Action |
+|---|---|
+| `tab` / `shift+tab` | next / previous pane |
+| `↑↓` `k`/`j` | move |
+| `←→` `h`/`l` | collapse / expand environment |
+| `enter` / `space` | select; in the tree toggles an environment, in the table jumps to logs |
+| `g` / `G` | top / bottom |
+| `/` | filter by id, host, env, provider, or target; `esc` clears |
+| `R` | poll now |
+| `r` / `x` | restart / start-stop |
+| `L` / `f` / `c` | focus logs / toggle follow / clear |
+| `d` | deploy preview (wired, execution lands in M5) |
+| `F` | SFTP browser (wired, lands in M6) |
+| `?` / `q` | help / quit |
+
+Planned extras: `y` copy selected log line, `:` command palette
+(`deploy api to web-2`), and a global `host:`/`app:`/`env:` filter syntax (M6).
+Headless equivalents today: `wmdep status`; `wmdep logs` and `wmdep deploy` follow
+in M4/M5.
 
 ---
 
@@ -71,10 +87,13 @@ Views (tabs within the app): **Overview**, **Logs**, **Files** (SFTP browser), *
 
 ### Stack
 
+Dependencies in `go.mod` today are the first four rows. The SSH, SQLite, and
+keyring rows are design decisions that land in M2 and M5, not current deps.
+
 | Concern | Choice | Why |
 |---|---|---|
 | TUI runtime | `charm.land/bubbletea/v2` | Elm-style model, testable, ecosystem |
-| Widgets | `charm.land/bubbles/v2` (table, viewport, textinput, spinner, help) | Standard, composable |
+| Widgets | `charm.land/bubbles/v2` (table, viewport, spinner, help) | Standard, composable |
 | Styling | `charm.land/lipgloss/v2` | Adaptive colors, layouts |
 | CLI | `spf13/cobra` | Subcommands for headless mode |
 | SSH | `golang.org/x/crypto/ssh` | No external binary dependency |
@@ -82,7 +101,7 @@ Views (tabs within the app): **Overview**, **Logs**, **Files** (SFTP browser), *
 | ssh config | `kevinburke/ssh_config` | Honor `~/.ssh/config`, `Include`, ProxyJump |
 | Known hosts | `golang.org/x/crypto/ssh/knownhosts` | Host key verification by default |
 | Persistence | SQLite (`modernc.org/sqlite`, pure Go) + YAML config | History/metrics in DB; human-editable config |
-| Config | `gopkg.in/yaml.v3`, `adrg/xdg` paths | `~/.config/wmdep/` |
+| Config | `gopkg.in/yaml.v3`; paths from `$WMDEP_CONFIG_DIR` / `$XDG_CONFIG_HOME` / `~/.config`, resolved directly (no xdg library) | `~/.config/wmdep/` |
 | Secrets | OS keyring (`zalando/go-keyring`) or env/agent; never in YAML | Avoid plaintext passwords |
 | Logging | `log/slog` to file, TUI-safe | Never write to stdout while TUI runs |
 
@@ -91,18 +110,18 @@ Views (tabs within the app): **Overview**, **Logs**, **Files** (SFTP browser), *
 Single process. One **connection manager** owns at most one SSH client per host, reused by exec/SFTP/log streams, with keepalive and lazy reconnect. All remote work is async (`tea.Cmd` → messages), never blocking the UI loop.
 
 ```
-cmd/wmdep/main.go
+main.go                     # cobra entry; main package at the repo root
 internal/
-  config/        YAML load, validation, migrations, defaults
-  sshx/          dial, auth, pool, keepalive, known_hosts, jump hosts
-  sftp/          file ops, streaming upload/download, atomic writes
-  provider/      systemd | docker | compose | pm2 | command
-  app/           domain model (Host, App, Status, Deploy, Run)
-  watch/         polling scheduler, backoff, health aggregation
-  deploy/        pipeline engine, steps, hooks, rollback
-  store/         SQLite: runs, status samples, schema
-  ui/            root model, views, components, keymap, theme
-  tui/           (optional) shared primitives
+  app/           domain model (Host, App, Status, Key, health)
+  config/        multi-file loader, line-indexed diagnostics, validation
+  cli/           TUI wiring, status, config validate|init|show, version
+  provider/      Provider interface, registry, fake (M1); systemd|docker|compose|pm2|command (M3)
+  watch/         polling scheduler, jitter, backoff, filtering
+  ui/            root model, panes, theme, keymap
+  sshx/          (M2) dial, auth, pool, keepalive, known_hosts, jump hosts
+  sftp/          (M2) file ops, streaming transfer, atomic writes
+  deploy/        (M5) pipeline engine, steps, hooks, rollback
+  store/         (M5) SQLite: runs, status samples, schema
 ```
 
 ### Provider interface
@@ -111,14 +130,18 @@ Each app type implements one interface; the UI never shells out directly.
 
 ```go
 type Provider interface {
-    Status(ctx context.Context, app App) (Status, error)
-    Start(ctx context.Context, app App) error
-    Stop(ctx context.Context, app App) error
-    Restart(ctx context.Context, app App) error
-    Logs(ctx context.Context, app App, opts LogOpts) (io.ReadCloser, error)
-    Metrics(ctx context.Context, app App) (Metrics, error)
+    Status(ctx context.Context, app app.App, host app.Host) (app.Status, error)
+    Start(ctx context.Context, app app.App, host app.Host) error
+    Stop(ctx context.Context, app app.App, host app.Host) error
+    Restart(ctx context.Context, app app.App, host app.Host) error
+    Logs(ctx context.Context, app app.App, host app.Host, opts LogOpts) (io.ReadCloser, error)
+    Metrics(ctx context.Context, app app.App, host app.Host) (app.Metrics, error)
 }
 ```
+
+`host` is passed explicitly rather than looked up inside the provider: the
+resolved target is what the connection pool keys on, and tests can substitute a
+host without constructing a bundle. This is the interface M1 ships.
 
 Implementations:
 
@@ -155,8 +178,9 @@ defaults:
   ssh_timeout: 10s
   poll_interval: 5s
   log_tail: 500
-environments:
-  enabled: [prod, staging]     # or "all"
+# Scalar "all", or a list of names. (There is no `enabled:` key; the field is
+# the environments list itself, which is what the loader parses.)
+environments: [prod, staging]
 ui:
   theme: dark
   confirm_prod: true
@@ -262,7 +286,7 @@ Retention: samples downsampled after 24h, pruned after 7d (configurable).
 8. **Config is source of truth; DB is history.** One file per environment, shared hosts/pipelines referenced by name. Editing YAML by hand stays valid. `wmdep config validate` for CI.
 9. **TUI and headless share one core.** The UI calls the same service layer as `wmdep deploy`; no logic in views.
 10. **Graceful degradation.** A dead host shows an error badge and retries; it never blocks the rest of the UI.
-11. **Deploy steps are typed, not shell strings.** `pull`, `build`, `upload`, `run`, `wait` are distinct step types with validation and per-step timeouts. Local-build-and-upload and server-side-git-pull coexist in the same pipeline language.
+11. **Deploy step kinds are typed.** `pull`, `build`, `upload`, `download`, `run`, `wait`, `notify` are distinct types with their own validation and timeouts; `run` and `build.cmd` still carry a shell command because that is the operator's escape hatch. Local-build-and-upload and server-side-git-pull coexist in the same pipeline language.
 
 ---
 
@@ -270,7 +294,7 @@ Retention: samples downsampled after 24h, pruned after 7d (configurable).
 
 Estimates assume one developer, part-time.
 
-### M0 — Decisions & spikes (3–4 days)
+### M0 — Decisions & spikes (3–4 days) — done
 - Confirm provider priority (assume systemd + docker first), and whether remote builds are in scope (yes — as a step type).
 - Spike: Bubble Tea table + viewport layout with resizing.
 - Spike: SSH pool with exec + SFTP + log streaming against a local container (`sshd` in Docker).
@@ -279,7 +303,12 @@ Estimates assume one developer, part-time.
 
 **Exit:** both spikes run, keyring fallback behavior decided, schema documented.
 
-### M1 — Skeleton (4–5 days)
+*Actual:* the layout spike replaced the `bubbles/table` + viewport assumption with a
+custom tree and an adaptive table (columns are dropped as width shrinks, because
+the stock table truncates instead). The SSH/keyring spikes moved into M2 rather
+than blocking the skeleton; config schema v1 is frozen and implemented.
+
+### M1 — Skeleton (4–5 days) — done
 - Cobra root + `wmdep` (TUI), `wmdep config validate`, `wmdep status`.
 - Multi-file config loader: `config.yaml` + `hosts.yaml` + `pipelines.yaml` + `environments/*.yaml`, defaults, validation, XDG paths, `--config`, `--env`.
 - Cross-reference checks with file:line errors (unknown host, unknown pipeline, duplicate app id, unreachable proxy_jump).
@@ -287,6 +316,12 @@ Estimates assume one developer, part-time.
 - Fake in-memory provider so UI is developable without servers.
 
 **Exit:** `wmdep` starts, renders multiple environments from fixtures, resizes cleanly, `q` quits, `config validate` catches broken refs.
+
+*Actual:* met. The M1 build also ships the log pane, filter mode, start/stop
+actions against the provider, and adaptive table columns; those were pulled
+forward because the fake provider made them cheap to exercise. The stock
+`bubbles/table` could not clip columns, so the table rebuilds its column plan
+whenever the pane resizes.
 
 ### M2 — SSH core (5–7 days)
 - `sshx`: dial with agent/key/password, `~/.ssh/config` + ProxyJump, known_hosts verification, timeouts, keepalive.
@@ -301,16 +336,18 @@ Estimates assume one developer, part-time.
 ### M3 — Providers & status (4–5 days)
 - systemd provider (status, start/stop/restart, logs, metrics via `systemctl show` + `/proc` or `ps`).
 - docker provider (inspect, restart, logs, stats).
-- compose + pm2 providers.
 - `command` provider for escape hatch.
-- Watch scheduler: visible-only polling, jitter, backoff on failure, aggregated health.
+- compose + pm2 providers are **stretch**: if they slip, they land in v0.2, matching the cut line in §8.
+- Watch scheduler: visible-only polling, jitter, backoff, aggregated health — already implemented in M1; M3 only adds provider-specific health checks (HTTP/TCP/command probes).
 
 **Exit:** overview shows live state for systemd and docker apps on two hosts; stopping a unit updates within one poll interval.
 
-### M4 — Logs (3–4 days)
-- Streaming logs into a ring buffer + viewport, follow mode, pause/scroll.
-- Filter (`/`), level highlight, wrap toggle, timestamps, copy line, open in `$PAGER`.
-- Per-app log sessions with cancellation and cap; `journalctl --since` backfill.
+### M4 — Logs (3–4 days) — partly done
+- [done in M1] ring buffer, follow mode, level colouring, per-app cancellation.
+- Streaming logs into the pane from real providers, with `journalctl --since` and
+  `docker logs --tail` backfill.
+- Pause/scroll without dropping the stream, filter (`/`), wrap toggle, timestamps.
+- Copy line (`y`), open in `$PAGER`, search within the buffer.
 
 **Exit:** follow logs from 3 apps at once without UI stalls; quitting cancels remote processes (verified with `ps` on server).
 
@@ -369,7 +406,10 @@ Total: roughly **7–9 weeks** part-time, **4–5 weeks** full-time.
 
 - **Unit:** config validation, provider output parsers (golden files), deploy step state machine, keymap dispatch, log ring buffer.
 - **Integration:** Docker Compose test fixture: `openssh-server` + systemd-like fake + docker socket. Exercise dial, exec, SFTP, log cancel.
-- **UI:** Bubble Tea model tests via `teatest`; golden snapshots at 80x24 and 200x50.
+- **UI:** model-level tests drive `Update` with `WindowSizeMsg` and `KeyPressMsg`
+  and assert on the rendered frame (ANSI stripped). Golden frames are checked at
+  80x24 and 140x40 for layout rules — line count never exceeds height, no line
+  exceeds width. No `teatest` dependency; the model is the unit.
 - **Manual matrix:** macOS/Linux, tmux/screen, 16-color and truecolor terminals, 1 host / 10 hosts, 100 apps.
 
 ---
@@ -377,17 +417,17 @@ Total: roughly **7–9 weeks** part-time, **4–5 weeks** full-time.
 ## 8. v0.1 scope (cut line)
 
 In:
-- systemd + docker providers
+- systemd + docker providers (`command` escape hatch included)
 - agent/key/password auth (keyring), known_hosts verification
 - per-environment config files + shared hosts/pipelines
 - overview, logs, deploy with rollback, run history
 - deploy steps: build (local+remote), pull, upload, download, run, wait, notify
-- SFTP upload/download
+- SFTP upload/download (deploy steps; the interactive browser is M6)
 - headless `status`, `logs`, `deploy`
 - config validation, docs, brew/linux binaries
 
 Out (v0.2+):
-- compose/pm2 providers, jump-host chains beyond one hop, file editing UI, metrics graphs, multi-user/audit, remote build agents, Windows support.
+- compose/pm2 providers (stretch in M3), jump-host chains beyond one hop, interactive file editing, metrics graphs, multi-user/audit, remote build agents, Windows support.
 
 ---
 
@@ -415,15 +455,24 @@ Out (v0.2+):
   `feat:`, `fix:`, and everything else (see the GoReleaser config).
 - Tags are `vX.Y.Z`, cut only from a green `main`. The tag is the single source
   of truth for the version; nothing version-like is stored in a file.
-- The remote is configured now; the first push happens when there is something
-  worth pushing (or immediately, if the repo is created first).
+- `origin` is `https://github.com/fakihariefnoto/wmdep.git`; `main` tracks it.
 
-### Migration to the real repo (already done in the working tree)
+### Repository state (done)
 
-- Module renamed from `github.com/fakih/wmdep` to
-  `github.com/fakihariefnoto/wmdep`; every import and the Makefile ldflags were
-  updated in the same pass. `go build ./...` and `go test ./...` verify it.
-- `LICENSE` added (MIT).
+The repository already existed with a GitHub-generated README, MIT `LICENSE`, and
+Go `.gitignore`. It is now wired up:
+
+- Module path is `github.com/fakihariefnoto/wmdep`; every import and the Makefile
+  ldflags were updated in the same pass.
+- `git init -b main`, `origin` added, M1 committed, fetched, merged with the
+  remote initial commit, and pushed:
+  - keep the remote `LICENSE` (MIT, "Fakih Arief Noto") and its Go `.gitignore`
+    template, extended with wmdep build output;
+  - keep this repository's README, which supersedes the two-line stub.
+- `go build ./...` and `go test ./...` verify the rename.
+
+No `gh` CLI is installed on this machine, so repo creation and secret
+configuration happen in the GitHub web UI or after installing `gh`.
 
 ### Release toolchain: adapt `~/Projects/fakih.net/omssh`
 
@@ -461,16 +510,15 @@ make release V=minor        # test → tag → push → goreleaser → tap formu
 gh workflow run release -f tag=v0.1.0
 ```
 
-First-release prerequisites, same as omssh:
+First-release checklist (the repository itself already exists and is pushed):
 
-1. `gh repo create fakihariefnoto/wmdep --public --source=. --remote=origin`
-   (or add the remote by hand).
-2. `git push -u origin main`.
-3. Confirm `fakihariefnoto/homebrew-tap` has a `Formula/` directory.
-4. Add `TAP_GITHUB_TOKEN` as a repository secret: a fine-grained PAT with
-   `Contents: read and write` on the tap. The default `GITHUB_TOKEN` cannot
-   push to a second repository.
-5. Cut `v0.1.0` through `make release` so the first tag points at pushed code.
+1. Confirm `fakihariefnoto/homebrew-tap` exists and has a `Formula/` directory.
+2. Add `TAP_GITHUB_TOKEN` in **Settings → Secrets and variables → Actions**: a
+   fine-grained PAT with `Contents: read and write` on the tap. The default
+   `GITHUB_TOKEN` cannot push to a second repository.
+3. Confirm the release workflow is enabled for tag pushes (`v*`).
+4. Cut `v0.1.0` through `make release V=0.1.0` (or tag and push by hand) so the
+   tag points at pushed code on `main`.
 
 Install channels produced: GitHub Releases archives + `checksums.txt`, the
 Homebrew tap, and `go install github.com/fakihariefnoto/wmdep@latest`.
@@ -496,10 +544,16 @@ Deviations from the original plan, and why:
 - **`--demo` is currently always on.** M1 has no SSH provider, so the header shows a `demo` chip rather than pretending. M2 registers the real providers and leaves `--demo` as the fake path.
 - **Deploy and Files keys** (`d`, `F`) show explicit "arrives in M5/M6" notices instead of being silent.
 - **The log pane is already live** (M4 work) because the fake provider could feed it cheaply; M4 replaces the fake stream with `journalctl`/`docker logs` and adds search/pager.
+- **Tests are model-level, not `teatest`.** Driving `Update` directly and
+  asserting on the rendered frame caught the real bugs (lipgloss sizing,
+  column/cell mismatch) without a terminal emulator.
 
 Known gaps to close in M2/M3:
 
 - Nothing dials SSH yet; `status` and the TUI both use the fake provider.
 - `action` (restart/stop/start) is only exercised against the fake.
 - No persistence: run history and metric samples (SQLite) are M5.
+- No headless `logs` or `deploy` yet (M4/M5); `status` is the only headless query.
+- `y` copy-line and the `:` command palette are not implemented (M6).
+- The deploy key (`d`) and files key (`F`) are placeholders with explicit notices.
 
