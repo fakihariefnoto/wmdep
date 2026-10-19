@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +64,8 @@ func press(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "backspace":
 		return tea.KeyPressMsg{Code: tea.KeyBackspace}
+	case "ctrl+s":
+		return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
 	default:
 		r := []rune(s)[0]
 		return tea.KeyPressMsg{Code: r, Text: s}
@@ -399,15 +403,14 @@ func TestSplashEnterOpensDashboard(t *testing.T) {
 	}
 }
 
-func TestSplashMenuScopesTheDashboard(t *testing.T) {
+func TestSplashMenuOpensManagementScreens(t *testing.T) {
 	cases := []struct {
-		item    int
-		scope   dashScope
-		want    []string
-		notWant []string
+		item int
+		want screenKind
+		text []string
 	}{
-		{1, scopeDeployments, []string{"DEPLOYMENTS", "prod"}, []string{"HOSTS"}},
-		{2, scopeServers, []string{"SERVERS", "HOSTS", "web-1"}, []string{"web-1 · web-2"}},
+		{1, screenDeployments, []string{"deployments", "APP", "ENV", "HOST", "PROVIDER", "PIPELINE"}},
+		{2, screenServers, []string{"servers", "ADDRESS", "USER", "AUTH", "APPS"}},
 	}
 	for _, tc := range cases {
 		m := newTestModel(t)
@@ -416,18 +419,13 @@ func TestSplashMenuScopesTheDashboard(t *testing.T) {
 			m = send(t, m, press("j"))
 		}
 		m = send(t, m, press("enter"))
-		if m.screen != screenDashboard || m.dash.scope != tc.scope {
-			t.Fatalf("item %d: screen=%v scope=%v, want dashboard/%v", tc.item, m.screen, m.dash.scope, tc.scope)
+		if m.screen != tc.want {
+			t.Fatalf("item %d: screen=%v, want %v", tc.item, m.screen, tc.want)
 		}
 		got := viewText(m)
-		for _, want := range tc.want {
+		for _, want := range tc.text {
 			if !strings.Contains(got, want) {
 				t.Errorf("item %d: missing %q:\n%s", tc.item, want, got)
-			}
-		}
-		for _, bad := range tc.notWant {
-			if strings.Contains(got, bad) {
-				t.Errorf("item %d: should not contain %q", tc.item, bad)
 			}
 		}
 	}
@@ -494,6 +492,178 @@ func TestWordmarkFitsEightyColumns(t *testing.T) {
 	for i, line := range wordmark {
 		if w := lipglossWidth(strings.TrimRight(line, " ")); w > 60 {
 			t.Errorf("wordmark line %d is %d columns, want <= 60", i, w)
+		}
+	}
+}
+
+// tempModel copies the fixture into a temp dir so CRUD tests can write to it.
+func tempModel(t *testing.T) *Model {
+	t.Helper()
+	src := "../config/testdata/good"
+	dst := t.TempDir()
+
+	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o600)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b, diags := config.Load(dst, config.Options{})
+	for _, d := range diags {
+		if d.Severity == "error" {
+			t.Fatalf("fixture: %s", d.Error())
+		}
+	}
+	reg := provider.NewRegistry()
+	reg.RegisterAll(provider.NewFake())
+	return New(b, reg)
+}
+
+func typeText(t *testing.T, m *Model, s string) *Model {
+	t.Helper()
+	for _, r := range s {
+		m = send(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	return m
+}
+
+func TestUIAddDeployment(t *testing.T) {
+	m := tempModel(t)
+	m = send(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m = send(t, m, press("j")) // splash menu: Deployments
+	m = send(t, m, press("enter"))
+	if m.screen != screenDeployments {
+		t.Fatalf("screen = %v, want deployments", m.screen)
+	}
+
+	m = send(t, m, press("a"))
+	if m.screen != screenEditor {
+		t.Fatalf("screen = %v, want editor", m.screen)
+	}
+	m = typeText(t, m, "cron")
+	m = send(t, m, press("tab")) // env
+	m = send(t, m, press("tab")) // host
+	m = send(t, m, press("tab")) // provider
+	m = send(t, m, press("tab")) // target
+	m = typeText(t, m, "cron.service")
+	m = send(t, m, press("ctrl+s"))
+
+	if m.screen != screenDeployments {
+		t.Fatalf("save should return to the list, form error: %q", m.form.err)
+	}
+	if m.form.err != "" {
+		t.Fatalf("form error: %s", m.form.err)
+	}
+
+	found := false
+	for _, a := range m.bundle.Apps {
+		if a.ID == "cron" && a.Unit == "cron.service" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("cron not in the reloaded bundle: %+v", m.bundle.Apps)
+	}
+
+	// The write must have reached disk and still validate.
+	b, diags := config.Load(m.bundle.Dir, config.Options{})
+	for _, d := range diags {
+		if d.Severity == "error" {
+			t.Fatalf("written config is invalid: %s", d.Error())
+		}
+	}
+	if len(b.Apps) != len(m.bundle.Apps) {
+		t.Errorf("disk has %d apps, model has %d", len(b.Apps), len(m.bundle.Apps))
+	}
+}
+
+func TestUIDeleteDeploymentConfirms(t *testing.T) {
+	m := tempModel(t)
+	m = send(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m = send(t, m, press("j")) // splash menu: Deployments
+	m = send(t, m, press("enter"))
+
+	before := len(m.bundle.Apps)
+	m = send(t, m, press("x")) // arm
+	if len(m.bundle.Apps) != before {
+		t.Fatal("first x must not delete")
+	}
+	m = send(t, m, press("x")) // confirm
+	if len(m.bundle.Apps) != before-1 {
+		t.Fatalf("apps = %d, want %d", len(m.bundle.Apps), before-1)
+	}
+	if _, diags := config.Load(m.bundle.Dir, config.Options{}); len(diags) > 0 {
+		for _, d := range diags {
+			if d.Severity == "error" {
+				t.Fatalf("config invalid after delete: %s", d.Error())
+			}
+		}
+	}
+}
+
+func TestUIAddHost(t *testing.T) {
+	m := tempModel(t)
+	m = send(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m = send(t, m, press("j"))
+	m = send(t, m, press("j")) // splash menu: Servers
+	m = send(t, m, press("enter"))
+	if m.screen != screenServers {
+		t.Fatalf("screen = %v, want servers", m.screen)
+	}
+
+	m = send(t, m, press("a"))
+	m = typeText(t, m, "web-9")
+	m = send(t, m, press("tab")) // address
+	m = typeText(t, m, "10.0.0.19")
+	m = send(t, m, press("tab")) // port
+	m = typeText(t, m, "2222")
+	m = send(t, m, press("tab")) // user
+	m = typeText(t, m, "deploy")
+	m = send(t, m, press("ctrl+s"))
+
+	if m.form.err != "" {
+		t.Fatalf("form error: %s", m.form.err)
+	}
+	h, ok := m.bundle.Hosts["web-9"]
+	if !ok {
+		t.Fatalf("web-9 missing after save: %+v", m.bundle.Hosts)
+	}
+	if h.Port != 2222 || h.User != "deploy" {
+		t.Errorf("host = %+v", h)
+	}
+}
+
+func TestUIEditorCancelWritesNothing(t *testing.T) {
+	m := tempModel(t)
+	m = send(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m = send(t, m, press("j")) // splash menu: Deployments
+	m = send(t, m, press("enter"))
+	m = send(t, m, press("a"))
+	m = typeText(t, m, "ghost")
+	m = send(t, m, press("esc"))
+
+	if m.screen != screenDeployments {
+		t.Fatalf("screen = %v, want deployments", m.screen)
+	}
+	for _, a := range m.bundle.Apps {
+		if a.ID == "ghost" {
+			t.Fatal("cancel wrote the app")
 		}
 	}
 }

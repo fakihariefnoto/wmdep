@@ -2,7 +2,7 @@
 
 A terminal UI for watching and operating services spread across many servers, over SSH/SFTP.
 
-Status: M1 complete (skeleton); M1b (splash, dashboard, screen router) next
+Status: M1, M1b, M1c complete (UI + config CRUD); M2 (SSH core) next
 Target: Go 1.26+, macOS/Linux (Windows best-effort)
 
 ---
@@ -548,7 +548,7 @@ whenever the pane resizes.
 **Exit:** launch → splash → Deployments → pick an environment card → Manage
 filtered to it → `esc` back to the dashboard with the scope preserved.
 
-### M1c — Config writer, editor, and management screens (5–6 days)
+### M1c — Config writer, editor, and management screens (5–6 days) — mostly done
 - `config.Writer`: edit the existing `yaml.Node` tree (comments and key order preserved), validate the whole bundle, atomic temp+fsync+rename, `.bak`, file lock, and an mtime/hash guard that aborts a save if the file changed since load.
 - Deployment editor: add and edit share one model; fields vary by provider; inline help (`f1`); provider-aware validation; `ctrl+s` saves and reloads the bundle in place.
 - Host editor, including `＋ new host` from the deployment form.
@@ -560,6 +560,12 @@ filtered to it → `esc` back to the dashboard with the scope preserved.
 - Tests: round-trip preserves comments/ordering; add/edit/delete/duplicate; invalid edits refused; concurrent external edit aborts; host delete guard; doctor catches key-permission problems.
 
 **Exit:** add a host and two deployments using only the UI, duplicate one to a second host, delete one, and confirm `wmdep config validate` passes with a clean diff.
+
+*Actual:* the writer, deployment editor, host editor, both management lists,
+duplicate, two-press delete, `config doctor`, `config fmt`, and `config edit`
+are implemented and tested. Still deferred: starter templates, typed
+confirmation for prod deletes, and the dirty-form prompt (cancel discards
+silently today).
 
 ### M2 — SSH core (5–7 days)
 - `sshx`: dial with agent/key/password, `~/.ssh/config` + ProxyJump, known_hosts verification, timeouts, keepalive.
@@ -763,7 +769,7 @@ Key differences from omssh that the config must get right:
 4. **Homebrew tap** is `fakihariefnoto/homebrew-tap`, directory `Formula`,
    homepage `https://github.com/fakihariefnoto/wmdep`.
 
-### Release flow (once M7 lands)
+### Release flow (scaffolding in place; first tag after M7)
 
 ```sh
 # local, with a token that can push to the tap

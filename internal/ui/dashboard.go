@@ -210,11 +210,16 @@ func (m *Model) handleDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "a":
-		m.setFlash("the deployment editor lands in M1c")
-	case "e":
-		m.setFlash("edit lands in M1c")
-	case "x":
-		m.setFlash("delete lands in M1c")
+		m.list.kind = listDeployments
+		return m.startCreate()
+	case "e", "x":
+		m.openList(listDeployments)
+		if msg.String() == "e" {
+			m.setFlash("select a deployment to edit")
+		} else {
+			m.setFlash("select a deployment to delete")
+		}
+		return m, m.refresh()
 	case "s":
 		m.setFlash("host scan lands in M2b — it needs the SSH discovery pass")
 	}

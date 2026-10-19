@@ -127,9 +127,11 @@ func (m *Model) activateSplashItem() (tea.Model, tea.Cmd) {
 	case 0:
 		m.openDashboard(scopeAll)
 	case 1:
-		m.openDashboard(scopeDeployments)
+		m.openList(listDeployments)
+		return m, m.refresh()
 	case 2:
-		m.openDashboard(scopeServers)
+		m.openList(listServers)
+		return m, m.refresh()
 	case 3:
 		m.openDashboard(scopeAll)
 		m.setFlash("host scan lands in M2b — it needs the SSH discovery pass")
@@ -166,6 +168,11 @@ func (m *Model) openDashboard(scope dashScope) {
 // openManage enters the three-pane workspace scoped to an environment and/or
 // host. Empty strings mean "not scoped".
 func (m *Model) openManage(env, host, appID string) tea.Cmd {
+	// Remember where Manage was opened from so esc returns there, not always
+	// to the dashboard.
+	if m.screen == screenDeployments || m.screen == screenServers || m.screen == screenDashboard {
+		m.returnTo = m.screen
+	}
 	m.screen = screenManage
 	m.scopeEnv, m.scopeHost = env, host
 	m.tree.setScope(env, host)

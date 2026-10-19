@@ -41,6 +41,10 @@ const (
 	screenSplash screenKind = iota
 	screenDashboard
 	screenManage
+	screenDeployments
+	screenServers
+	screenEditor
+	screenHostEditor
 )
 
 const (
@@ -103,6 +107,9 @@ type Model struct {
 	screen        screenKind
 	dash          dashboard
 	splash        splash
+	list          listState
+	form          form
+	returnTo      screenKind
 	scopeEnv      string
 	scopeHost     string
 
@@ -139,17 +146,18 @@ func New(b *config.Bundle, reg *provider.Registry) *Model {
 	s := spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(th.accent))
 
 	m := &Model{
-		bundle: b,
-		reg:    reg,
-		keys:   DefaultKeyMap(),
-		th:     th,
-		help:   h,
-		spin:   s,
-		tree:   newHostTree(),
-		table:  newAppTable(th),
-		logs:   newLogPane(),
-		status: map[app.Key]app.Status{},
-		screen: screenSplash,
+		bundle:   b,
+		reg:      reg,
+		keys:     DefaultKeyMap(),
+		th:       th,
+		help:     h,
+		spin:     s,
+		tree:     newHostTree(),
+		table:    newAppTable(th),
+		logs:     newLogPane(),
+		status:   map[app.Key]app.Status{},
+		screen:   screenSplash,
+		returnTo: screenDashboard,
 	}
 	m.poller = watch.New(reg, b.Defaults().SSHTimeout.Std(), 8)
 	m.dash.build(b)
@@ -204,6 +212,10 @@ func (m *Model) targets() []watch.Target {
 	if m.screen == screenManage {
 		env, host, _ := m.tree.selected()
 		return watch.Build(m.bundle.Apps, m.bundle.Hosts, env, host, m.filter)
+	}
+	if m.screen == screenDeployments || m.screen == screenServers ||
+		m.screen == screenEditor || m.screen == screenHostEditor {
+		return watch.Build(m.bundle.Apps, m.bundle.Hosts, "", "", "")
 	}
 	switch m.dash.scope {
 	case scopeDeployments:
@@ -326,6 +338,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleSplashKey(msg)
 		case screenDashboard:
 			return m.handleDashboardKey(msg)
+		case screenDeployments, screenServers:
+			return m.handleListKey(msg)
+		case screenEditor, screenHostEditor:
+			return m.handleFormKey(msg)
 		default:
 			return m.handleManageKey(msg)
 		}
@@ -354,7 +370,14 @@ func (m *Model) handleManageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.refresh()
 		default:
 			m.stopLogs()
-			m.openDashboard(m.dash.scope)
+			switch m.returnTo {
+			case screenDeployments:
+				m.openList(listDeployments)
+			case screenServers:
+				m.openList(listServers)
+			default:
+				m.openDashboard(m.dash.scope)
+			}
 			return m, m.refresh()
 		}
 		return m, nil
@@ -588,6 +611,9 @@ func (m *Model) rebuild() {
 	m.tree.rebuild(m.bundle, m.status)
 	m.table.setApps(apps, m.status, time.Now(), m.th)
 	m.rebuildDetail()
+	if n := m.listLen(); m.list.cursor >= n {
+		m.list.cursor = max(0, n-1)
+	}
 }
 
 func (m *Model) rebuildDetail() {
@@ -672,6 +698,10 @@ func (m *Model) render() string {
 		return m.splashView()
 	case screenDashboard:
 		return m.dashboardView()
+	case screenDeployments, screenServers:
+		return m.listView()
+	case screenEditor, screenHostEditor:
+		return m.formView()
 	default:
 		return m.mainView()
 	}

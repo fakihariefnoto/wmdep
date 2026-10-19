@@ -1,0 +1,89 @@
+# GoReleaser — wmdep.
+#
+# Three install channels in one pass:
+#   1. GitHub Releases    (archives + checksums.txt)
+#   2. Homebrew tap       (brews -> fakihariefnoto/homebrew-tap)
+#   3. go install         (module path github.com/fakihariefnoto/wmdep)
+#
+# Local release:
+#   TAP_GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
+# or ./scripts/release.sh, which resolves a token for you.
+#
+# Pure Go, no cgo: every target cross-compiles from one machine. macOS and Linux
+# only — the terminal/keyring paths have not been exercised on Windows.
+
+version: 2
+
+project_name: wmdep
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: wmdep
+    main: .
+    binary: wmdep
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/fakihariefnoto/wmdep/internal/cli.Version={{.Version}}
+      - -X github.com/fakihariefnoto/wmdep/internal/cli.Commit={{.FullCommit}}
+      - -X github.com/fakihariefnoto/wmdep/internal/cli.Date={{.Date}}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: wmdep
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: fakihariefnoto
+    name: wmdep
+  draft: false
+  prerelease: auto
+
+brews:
+  - name: wmdep
+    repository:
+      owner: fakihariefnoto
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/fakihariefnoto/wmdep"
+    description: "Watch My Deployment — a terminal cockpit for services across servers"
+    license: "MIT"
+    install: |
+      bin.install "wmdep"
+    test: |
+      assert_match "wmdep", shell_output("#{bin}/wmdep version")
+
+changelog:
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other
+      order: 999

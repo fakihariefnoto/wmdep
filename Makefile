@@ -8,7 +8,7 @@ LDFLAGS := -s -w \
 	-X github.com/fakihariefnoto/wmdep/internal/cli.Commit=$(COMMIT) \
 	-X github.com/fakihariefnoto/wmdep/internal/cli.Date=$(DATE)
 
-.PHONY: all build run demo demo-config test race vet fmt lint tidy install clean
+.PHONY: all build run demo test race vet fmt lint tidy install clean snapshot release token-store
 
 all: build
 
@@ -44,6 +44,15 @@ tidy:
 install:
 	go install -ldflags "$(LDFLAGS)" .
 
+snapshot:
+	goreleaser release --snapshot --clean --skip=publish
+
+release:
+	./scripts/release.sh $(V)
+
+token-store:
+	./scripts/release.sh --store-token
+
 clean:
 	rm -f $(BINARY)
-	rm -rf demo
+	rm -rf demo dist

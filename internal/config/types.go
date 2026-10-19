@@ -39,6 +39,13 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 // Std returns the value as a time.Duration.
 func (d Duration) Std() time.Duration { return time.Duration(d) }
 
+// MarshalYAML renders a duration the same way it is written: "10s", not a raw
+// nanosecond count. Without this, every editor save would rewrite timeouts as
+// integers.
+func (d Duration) MarshalYAML() (any, error) {
+	return time.Duration(d).String(), nil
+}
+
 // EnvFilter is the environments.enabled field. It accepts either the scalar
 // "all" or a list of environment names.
 type EnvFilter struct {

@@ -16,7 +16,8 @@ func newConfigCmd(o *opts) *cobra.Command {
 		Use:   "config",
 		Short: "Work with the wmdep config directory",
 	}
-	cmd.AddCommand(newConfigValidateCmd(o), newConfigInitCmd(o), newConfigShowCmd(o))
+	cmd.AddCommand(newConfigValidateCmd(o), newConfigInitCmd(o), newConfigShowCmd(o),
+		newConfigDoctorCmd(o), newConfigFmtCmd(o), newConfigEditCmd(o))
 	return cmd
 }
 
@@ -179,6 +180,14 @@ func scaffold(dir string, force bool) ([]string, error) {
 			return created, err
 		}
 		created = append(created, f.path)
+	}
+
+	// Normalise what we just wrote, so `config fmt` is a no-op on a fresh
+	// install rather than rewriting every file the operator just created.
+	if len(created) > 0 {
+		if _, err := config.FormatDir(dir); err != nil {
+			return created, err
+		}
 	}
 	return created, nil
 }

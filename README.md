@@ -46,18 +46,17 @@ ATTENTION
 
 ## Status
 
-**M1 and M1b are complete.** The config loader, validation, watch scheduler,
-screen router, splash menu, and dashboard cards are real. Remote I/O is not:
-every app is served by an in-memory provider, which is why the header shows a
-`demo` chip.
+**M1, M1b, and M1c are complete.** Config loading/validation, the screen router,
+splash, dashboard cards, searchable Deployments and Servers lists, and the
+add/edit/duplicate/delete editors are real. The guarded writer preserves
+comments, validates before saving, keeps a `.bak`, and refuses to overwrite an
+external edit.
 
-**Next (M1c): configuration you can actually maintain** — a deployment editor
-(add/edit/duplicate/delete), a host editor with `＋ new host`, searchable
-Deployments and Servers lists, templates for common stacks, and a guarded
-YAML writer that preserves comments. Plus `config doctor`, `config fmt`, and
-`config edit`.
+Remote I/O is not done: every app is served by an in-memory provider, which is
+why the header shows a `demo` chip.
 
-After that: M2 SSH core, M2b host scan, M3 providers, M5 deploy engine.
+**Next:** M2 SSH core, M2b host scan, M3 providers, M5 deploy engine. Release
+scaffolding (GoReleaser, CI, tap workflow) is already in place.
 
 ## Navigation
 
@@ -101,10 +100,10 @@ See [PLAN.md](PLAN.md) for the full design and milestone list.
 ```sh
 go build -o wmdep .
 ./wmdep config init          # writes starter config to ~/.config/wmdep
-$EDITOR ~/.config/wmdep/hosts.yaml
+./wmdep config doctor        # keys, permissions, empty environments
 ./wmdep config validate
 ./wmdep status
-./wmdep                      # the TUI
+./wmdep                      # splash -> dashboard -> manage
 ```
 
 The starter config is valid out of the box and points at example hosts
@@ -202,9 +201,18 @@ Pipelines are validated today; execution lands in M5.
 | | `enter` | open the highlighted item |
 | Dashboard | `tab` / arrows | move between cards |
 | | `enter` | open Manage scoped to the card |
-| | `a` / `e` / `x` | add / edit / delete (M1c) |
+| | `a` / `e` / `x` | add / edit / delete a deployment |
 | | `s` | scan a host (M2b) |
 | | `r` | poll now |
+| Deployments | `enter` | open Manage focused on that app |
+| | `a` / `e` / `c` / `x` | add / edit / duplicate / delete |
+| | `/` | search id, host, env, provider, target |
+| Servers | `enter` | open Manage scoped to that host |
+| | `a` / `e` / `x` | add / edit / delete a host |
+| | `t` / `s` | test connection (M2) / scan (M2b) |
+| Editor | `tab` / arrows | next / previous field |
+| | `enter` | cycle a select |
+| | `ctrl+s` / `esc` | save / cancel |
 | Manage | `tab` / `shift+tab` | next / previous pane |
 | | `↑↓` `k`/`j` | move |
 | | `←→` `h`/`l` | collapse / expand environment |
@@ -228,6 +236,8 @@ make test      # unit tests
 make race      # tests under the race detector
 make fmt vet   # formatting and vet
 make demo      # build, scaffold ./demo if needed, run the TUI
+make snapshot  # GoReleaser build into dist/ without publishing
+make release V=0.1.0
 ```
 
 Layout:

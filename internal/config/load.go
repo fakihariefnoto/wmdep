@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -69,7 +71,16 @@ type Bundle struct {
 	// They are reported but do not block startup.
 	Warnings []Diag
 
-	lines map[string]map[string]int // file -> yaml path -> line
+	lines  map[string]map[string]int // file -> yaml path -> line
+	stamps map[string]fileStamp      // file -> content stamp at load
+}
+
+// fileStamp is what the writer compares before overwriting a file, so an
+// external edit is never silently clobbered.
+type fileStamp struct {
+	modTime time.Time
+	size    int64
+	sum     [32]byte
 }
 
 // HostsOf returns the hosts referenced by an environment, in file order,
@@ -134,6 +145,7 @@ func Load(dir string, opts Options) (*Bundle, []Diag) {
 		Hosts:     map[string]app.Host{},
 		Pipelines: map[string]Pipeline{},
 		lines:     map[string]map[string]int{},
+		stamps:    map[string]fileStamp{},
 	}
 	l := LayoutFor(dir)
 
@@ -215,6 +227,14 @@ func (b *Bundle) read(path string, into any, errs *[]Diag, required bool) (*yaml
 		*errs = append(*errs, Diag{File: path, Severity: "error", Msg: "cannot read file: " + err.Error()})
 		return nil, false
 	}
+
+	// Record what was loaded so a later save can refuse to overwrite an
+	// external edit.
+	st := fileStamp{sum: sha256.Sum256(raw), size: int64(len(raw))}
+	if info, statErr := os.Stat(path); statErr == nil {
+		st.modTime = info.ModTime()
+	}
+	b.stamps[path] = st
 
 	var root yaml.Node
 	if err := yaml.Unmarshal(raw, &root); err != nil {
