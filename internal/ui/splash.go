@@ -230,7 +230,8 @@ func (m *Model) StartAt(screen string) {
 func (m *Model) openDashboard(scope dashScope) {
 	m.screen = screenDashboard
 	m.dash.scope = scope
-	m.dash.cursor = 0
+	m.dash.hostCursor = 0
+	m.dash.appCursor = 0
 	m.showHelp = false
 	m.rebuild()
 }

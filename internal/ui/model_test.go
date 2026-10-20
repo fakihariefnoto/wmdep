@@ -398,7 +398,7 @@ func TestSplashEnterOpensDashboard(t *testing.T) {
 		t.Fatalf("screen = %v, want dashboard", m.screen)
 	}
 	got := viewText(m)
-	for _, want := range []string{"Dashboard", "fleet", "prod", "needs attention", "prod", "staging", "web-1"} {
+	for _, want := range []string{"Dashboard", "fleet", "prod", "web-1", "api"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("dashboard missing %q:\n%s", want, got)
 		}
@@ -472,10 +472,10 @@ func TestDashboardFocusAndHelp(t *testing.T) {
 	m = send(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = send(t, m, press("enter"))
 
-	start := m.dash.cursor
+	start := m.dash.hostCursor
 	m = send(t, m, press("tab"))
-	if m.dash.cursor == start {
-		t.Error("tab should move the card cursor")
+	if m.dash.hostCursor == start {
+		t.Error("tab should move the host cursor")
 	}
 	m = send(t, m, press("?"))
 	if !m.showHelp {
@@ -485,7 +485,7 @@ func TestDashboardFocusAndHelp(t *testing.T) {
 	if m.showHelp || m.screen != screenDashboard {
 		t.Error("esc should close help before leaving the dashboard")
 	}
-	if got := viewText(m); !strings.Contains(got, "needs attention") {
+	if got := viewText(m); !strings.Contains(got, "SERVICES") {
 		t.Errorf("dashboard should still render:\n%s", got)
 	}
 }
