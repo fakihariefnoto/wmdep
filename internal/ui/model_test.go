@@ -443,27 +443,19 @@ func TestDashboardCardOpensScopedManageAndEscReturns(t *testing.T) {
 
 	// The first focusable card is the first environment.
 	m = send(t, m, press("enter"))
-	if m.screen != screenManage {
-		t.Fatalf("screen = %v, want manage", m.screen)
+	if m.screen != screenService {
+		t.Fatalf("screen = %v, want service", m.screen)
 	}
-	if m.scopeEnv != "prod" {
-		t.Fatalf("scopeEnv = %q, want prod", m.scopeEnv)
+	if m.service.ID != "api" || m.service.Host != "web-1" {
+		t.Fatalf("service = %+v", m.service)
 	}
-	for _, a := range m.table.apps {
-		if a.Environment != "prod" {
-			t.Errorf("scoped table leaked %s from %s", a.ID, a.Environment)
-		}
-	}
-	if got := viewText(m); !strings.Contains(got, "dashboard › prod") {
-		t.Errorf("manage header should show a breadcrumb:\n%s", got)
+	if got := viewText(m); !strings.Contains(got, "dashboard › prod › web-1 › api") {
+		t.Errorf("service view should show a breadcrumb:\n%s", got)
 	}
 
 	m = send(t, m, press("esc"))
 	if m.screen != screenDashboard {
 		t.Fatalf("esc should return to the dashboard, got %v", m.screen)
-	}
-	if m.scopeEnv != "prod" {
-		t.Error("dashboard should preserve the scope on return")
 	}
 }
 

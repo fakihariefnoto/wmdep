@@ -582,8 +582,8 @@ func (m *Model) handleDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		if a, _, ok := m.dashSelectedApp(); ok {
-			return m, m.openManage(a.Environment, a.Host, a.ID)
+		if a, host, ok := m.dashSelectedApp(); ok {
+			return m, m.openService(a, host)
 		}
 		return m, m.openManage(h.env, h.id, "")
 	}
@@ -597,7 +597,7 @@ func (m *Model) handleDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "u":
 			return m, m.actionFor(a, h, "reload")
 		case "l":
-			return m, m.openManage(a.Environment, a.Host, a.ID)
+			return m, m.openService(a, h)
 		case "d":
 			return m, m.startDeployFor(a, h)
 		}

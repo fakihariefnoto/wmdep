@@ -50,6 +50,7 @@ const (
 	screenDeployLog
 	screenSettings
 	screenFiles
+	screenService
 )
 
 const (
@@ -145,6 +146,8 @@ type Model struct {
 	Runs          *store.Runs
 	Filer         Filer
 	files         filesState
+	service       app.App
+	serviceHost   app.Host
 	deployLog     string
 	deployApp     string
 	deployStarted time.Time
@@ -237,6 +240,9 @@ func (m *Model) targets() []watch.Target {
 	}
 	if m.screen == screenScan {
 		return nil
+	}
+	if m.screen == screenService {
+		return watch.Build(m.bundle.Apps, m.bundle.Hosts, m.service.Environment, m.service.Host, m.service.ID)
 	}
 	switch m.dash.scope {
 	case scopeDeployments:
@@ -422,6 +428,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleSettingsKey(msg)
 		case screenFiles:
 			return m.handleFilesKey(msg)
+		case screenService:
+			return m.handleServiceKey(msg)
 		default:
 			return m.handleManageKey(msg)
 		}
@@ -622,15 +630,20 @@ func (m *Model) action(name string) tea.Cmd {
 	}
 }
 
-// startLogs cancels any running stream and begins one for the selected app.
+// startLogs streams the table's selected app; startLogsFor is used by the
+// focused service screen.
 func (m *Model) startLogs() tea.Cmd {
-	m.stopLogs()
-
 	a, h, ok := m.selectedApp()
-	m.logs = newLogPane()
 	if !ok {
+		m.logs = newLogPane()
 		return nil
 	}
+	return m.startLogsFor(a, h)
+}
+
+func (m *Model) startLogsFor(a app.App, h app.Host) tea.Cmd {
+	m.stopLogs()
+	m.logs = newLogPane()
 	m.logs.reset(a.Key())
 
 	prov, err := m.reg.For(a)
@@ -795,6 +808,8 @@ func (m *Model) render() string {
 		return m.settingsView()
 	case screenFiles:
 		return m.filesView()
+	case screenService:
+		return m.serviceView()
 	case screenEditor, screenHostEditor:
 		return m.formView()
 	default:
