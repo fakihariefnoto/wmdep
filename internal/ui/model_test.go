@@ -485,7 +485,7 @@ func TestDashboardFocusAndHelp(t *testing.T) {
 	if m.showHelp || m.screen != screenDashboard {
 		t.Error("esc should close help before leaving the dashboard")
 	}
-	if got := viewText(m); !strings.Contains(got, "SERVICES") {
+	if got := viewText(m); !strings.Contains(got, "api") {
 		t.Errorf("dashboard should still render:\n%s", got)
 	}
 }

@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"image/color"
 	"sort"
 	"strings"
@@ -47,6 +46,7 @@ type dashboard struct {
 	scope      dashScope
 	hostCursor int
 	appCursor  int
+	offset     int
 	hosts      []hostRef
 }
 
@@ -122,34 +122,161 @@ func (m *Model) dashSelectedApp() (app.App, app.Host, bool) {
 }
 
 func (m *Model) dashboardView() string {
+	head := []string{m.navBar(), m.fleetCard()}
+	var body []string
+	focusStart, focusEnd := -1, -1
+
+	for hi, h := range m.dash.hosts {
+		sectionStart := len(body)
+		focusedHost := hi == m.dash.hostCursor
+		body = append(body, m.hostBar(h, focusedHost))
+
+		apps := m.appsForHost(h)
+		if len(apps) > 0 {
+			cols := min(m.appCols(), len(apps))
+			if cols < 1 {
+				cols = 1
+			}
+			cw := (m.width - (cols - 1)) / cols
+			for i := 0; i < len(apps); i += cols {
+				var parts []string
+				for j := 0; j < cols && i+j < len(apps); j++ {
+					sel := focusedHost && i+j == m.dash.appCursor
+					parts = append(parts, m.appCard(apps[i+j], cw, sel))
+				}
+				body = append(body, lipgloss.JoinHorizontal(lipgloss.Top, parts...))
+			}
+		}
+		if focusedHost {
+			focusStart = sectionStart
+			focusEnd = len(body)
+		}
+	}
+
+	if len(m.dash.hosts) == 0 {
+		body = append(body, m.th.dim.Render("no hosts configured — add one from Servers (3)"))
+	}
+
+	bodyH := max(1, m.height-len(head)-1)
+	if focusStart >= 0 {
+		if focusStart < m.dash.offset {
+			m.dash.offset = focusStart
+		}
+		if focusEnd > m.dash.offset+bodyH {
+			m.dash.offset = focusEnd - bodyH
+		}
+	}
+	if maxOff := max(0, len(body)-bodyH); m.dash.offset > maxOff {
+		m.dash.offset = maxOff
+	}
+	if m.dash.offset < 0 {
+		m.dash.offset = 0
+	}
+	end := min(len(body), m.dash.offset+bodyH)
+	body = body[m.dash.offset:end]
+
+	out := append(head, body...)
+	out = append(out, m.dashFooter())
+	return strings.Join(clip(flatten(out), m.width, m.height), "\n")
+}
+
+func (m *Model) appCols() int {
+	switch {
+	case m.width >= 160:
+		return 4
+	case m.width >= 110:
+		return 3
+	default:
+		return 2
+	}
+}
+
+func (m *Model) appsForHost(h hostRef) []app.App {
+	var apps []app.App
+	for _, a := range m.bundle.Apps {
+		if a.Environment == h.env && a.Host == h.id {
+			apps = append(apps, a)
+		}
+	}
+	sort.SliceStable(apps, func(i, j int) bool { return apps[i].ID < apps[j].ID })
+	return apps
+}
+
+// hostBar is the host section header.
+func (m *Model) hostBar(h hostRef, focused bool) string {
 	th := m.th
-	lines := []string{m.navBar(), m.fleetCard(), m.hostTabs()}
-
-	h, ok := m.dash.selectedHost()
+	host, ok := m.bundle.Hosts[h.id]
 	if !ok {
-		lines = append(lines, "", th.dim.Render("no hosts configured — add one from Servers (3)"))
-		return strings.Join(append(lines, m.dashFooter()), "\n")
+		return m.card(h.id, []string{th.err.Render("unknown host")}, m.width, 4, focused, lipgloss.Color("#3A4A78"))
 	}
-	lines = append(lines, m.hostDetail(h))
+	apps := m.appsForHost(h)
+	var cpuSum float64
+	var mem int64
+	var states []app.State
+	running, issues := 0, 0
+	for _, a := range apps {
+		st := m.status[a.Key()]
+		state := st.State
+		if state == "" {
+			state = app.StateUnknown
+		}
+		if st.Err != nil {
+			state = app.StateFailed
+		}
+		if state == app.StateRunning && st.Err == nil {
+			cpuSum += st.CPU
+			mem += st.MemBytes
+			running++
+		}
+		if state != app.StateRunning && state != app.StateStopped {
+			issues++
+		}
+		states = append(states, state)
+	}
+	worst := worstState(states)
+	avg := 0.0
+	if running > 0 {
+		avg = cpuSum / float64(running)
+	}
 
-	apps := m.hostApps()
-	lines = append(lines, th.faint.Render("SERVICES · "+itoa(len(apps))))
+	line := th.bold.Render(host.ID) + "   " +
+		th.dim.Render(host.Addr()+" · "+host.User) + "   " +
+		th.faint.Render("["+h.env+"]") + "   " +
+		th.stateStyle(worst).Render(stateGlyph(worst)+" "+string(worst)) + "   " +
+		th.dim.Render("CPU "+pct(avg)) + "   " +
+		th.dim.Render("MEM "+humanBytes(mem)) + "   " +
+		th.faint.Render(countLabel(len(apps), "deployment"))
+	if issues > 0 {
+		line += "   " + th.warn.Render(itoa(issues)+" need attention")
+	}
+	return m.card("", []string{line}, m.width, 3, focused, lipgloss.Color("#3A4A78"))
+}
 
-	// Keep the selected service visible in the available space.
-	bodyH := max(1, m.height-len(lines)-1)
-	start := 0
-	if m.dash.appCursor >= bodyH {
-		start = m.dash.appCursor - bodyH + 1
+// appCard is one service card inside a host section.
+func (m *Model) appCard(a app.App, w int, selected bool) string {
+	th := m.th
+	st := m.status[a.Key()]
+	state := st.State
+	if state == "" {
+		state = app.StateUnknown
 	}
-	end := min(len(apps), start+bodyH)
-	for i := start; i < end; i++ {
-		lines = append(lines, m.serviceRow(apps[i], i == m.dash.appCursor))
+	if st.Err != nil {
+		state = app.StateFailed
 	}
-	if len(apps) > end || start > 0 {
-		lines = append(lines, th.faint.Render(fmt.Sprintf("%d-%d of %d", start+1, end, len(apps))))
+	uptime := "-"
+	if state == app.StateRunning {
+		uptime = humanUptime(st.Uptime(time.Now()))
 	}
-
-	return strings.Join(clip(flatten(lines), m.width, m.height-1), "\n") + "\n" + m.dashFooter()
+	pipeline := a.Deploy
+	if pipeline == "" {
+		pipeline = "no pipeline"
+	}
+	lines := []string{
+		th.stateStyle(state).Render(stateGlyph(state)+" "+string(state)) + "   " + th.dim.Render(uptime),
+		th.dim.Render("CPU "+pct(st.CPU)) + "   " + th.dim.Render("MEM "+humanBytes(st.MemBytes)),
+		th.faint.Render(pipeline),
+	}
+	return m.card(a.ID, lines, w, 6, selected, lipgloss.Color("#2F6FB5"))
 }
 
 // flatten expands multi-line card strings into individual lines before clip.
@@ -429,16 +556,16 @@ func (m *Model) handleDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.screen = screenSplash
 		return m, nil
-	case key.Matches(msg, m.keys.Tab), key.Matches(msg, m.keys.Right):
+	case key.Matches(msg, m.keys.Tab):
 		m.dash.moveHost(1)
 		return m, nil
-	case key.Matches(msg, m.keys.ShiftTab), key.Matches(msg, m.keys.Left):
+	case key.Matches(msg, m.keys.ShiftTab):
 		m.dash.moveHost(-1)
 		return m, nil
-	case key.Matches(msg, m.keys.Up):
+	case key.Matches(msg, m.keys.Up), key.Matches(msg, m.keys.Left):
 		m.dash.moveApp(-1, n)
 		return m, nil
-	case key.Matches(msg, m.keys.Down):
+	case key.Matches(msg, m.keys.Down), key.Matches(msg, m.keys.Right):
 		m.dash.moveApp(1, n)
 		return m, nil
 	case key.Matches(msg, m.keys.Top):
