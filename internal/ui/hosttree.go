@@ -86,10 +86,14 @@ func (t *hostTree) rebuild(b *config.Bundle, status map[app.Key]app.Status) {
 		if t.scopeEnv != "" && env.Name != t.scopeEnv {
 			continue
 		}
-		n, states := statesFor(env.Name, "")
-		rows = append(rows, treeRow{
-			kind: treeEnv, env: env.Name, apps: n, state: worstState(states),
-		})
+		// A host-scoped view does not need the environment header: the
+		// breadcrumb already says which environment we are in.
+		if t.scopeHost == "" {
+			n, states := statesFor(env.Name, "")
+			rows = append(rows, treeRow{
+				kind: treeEnv, env: env.Name, apps: n, state: worstState(states),
+			})
+		}
 		if t.collapsed[env.Name] {
 			continue
 		}
@@ -106,6 +110,19 @@ func (t *hostTree) rebuild(b *config.Bundle, status map[app.Key]app.Status) {
 		}
 	}
 	t.rows = rows
+
+	// When scoped to one host, the cursor must start on that host row: the
+	// manage screen derives its table filter from the selection, and landing on
+	// the environment row would show every app in the environment.
+	if t.scopeHost != "" {
+		for i, r := range rows {
+			if r.kind == treeHost && r.host == t.scopeHost && r.env == t.scopeEnv {
+				t.cursor = i
+				t.offset = 0
+				return
+			}
+		}
+	}
 
 	// Restore cursor: prefer the exact row, else the same environment.
 	t.cursor = clampIndex(t.cursor, len(rows))

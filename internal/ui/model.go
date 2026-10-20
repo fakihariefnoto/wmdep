@@ -702,13 +702,15 @@ func (m *Model) rebuild() {
 
 	m.dash.build(m.bundle)
 
+	// Rebuild the tree first: its cursor is the table filter, and a scoped tree
+	// moves the cursor onto the host row.
+	m.tree.rebuild(m.bundle, m.status)
 	env, host, _ := m.tree.selected()
 	targets := watch.Build(m.bundle.Apps, m.bundle.Hosts, env, host, m.filter)
 	apps := make([]app.App, 0, len(targets))
 	for _, t := range targets {
 		apps = append(apps, t.App)
 	}
-	m.tree.rebuild(m.bundle, m.status)
 	m.table.setApps(apps, m.status, time.Now(), m.th)
 	m.rebuildDetail()
 	if n := m.listLen(); m.list.cursor >= n {

@@ -705,3 +705,31 @@ func TestScanImport(t *testing.T) {
 		}
 	}
 }
+
+func TestServersOpenHostShowsOnlyThatHostsApps(t *testing.T) {
+	m := newTestModel(t)
+	m = send(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m = send(t, m, press("j"))
+	m = send(t, m, press("j")) // Servers
+	m = send(t, m, press("enter"))
+	if m.screen != screenServers {
+		t.Fatalf("screen = %v, want servers", m.screen)
+	}
+
+	// Hosts are sorted: stage-1, web-1, web-2.
+	m = send(t, m, press("j"))
+	m = send(t, m, press("j"))
+	m = send(t, m, press("enter"))
+
+	if m.screen != screenManage || m.scopeHost != "web-2" {
+		t.Fatalf("screen=%v scopeHost=%q", m.screen, m.scopeHost)
+	}
+	if len(m.table.apps) == 0 {
+		t.Fatal("no apps listed")
+	}
+	for _, a := range m.table.apps {
+		if a.Host != "web-2" {
+			t.Errorf("host scope leaked %s@%s", a.ID, a.Host)
+		}
+	}
+}
