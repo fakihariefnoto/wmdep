@@ -55,6 +55,22 @@ SSH, and you like the terminal.
 
 ## Installation
 
+**Homebrew** (after the first tagged release):
+
+```sh
+brew install fakihariefnoto/tap/wmdep
+```
+
+**Prebuilt binaries:** every release publishes `tar.gz` archives for macOS and
+Linux (amd64/arm64) plus `checksums.txt` on the
+[Releases page](https://github.com/fakihariefnoto/wmdep/releases).
+
+**Go install:**
+
+```sh
+go install github.com/fakihariefnoto/wmdep@latest
+```
+
 **Build a checkout** (Go 1.26 or newer):
 
 ```sh
@@ -63,9 +79,6 @@ cd wmdep
 make build
 ./wmdep version
 ```
-
-Once the first release is tagged, `go install github.com/fakihariefnoto/wmdep@latest`
-and the Homebrew formula become available; both are wired through GoReleaser.
 
 ## Quick start
 
@@ -156,6 +169,37 @@ troubleshooting entry.
 
 Global flags: `--config`, `--env`, `--demo`, `--no-splash`, `--screen`.
 
+## Releases
+
+wmdep ships through three channels in one pass, driven by
+[GoReleaser](https://goreleaser.com):
+
+1. **GitHub Releases** — archives and `checksums.txt`
+2. **Homebrew tap** — `Formula/wmdep.rb` committed to
+   [`fakihariefnoto/homebrew-tap`](https://github.com/fakihariefnoto/homebrew-tap)
+3. **`go install`** — via the module path
+
+Maintainers release from a clean `main`:
+
+```sh
+make release V=minor     # or patch | major | 0.2.0
+```
+
+The script runs checks (clean tree, on `main`, not ahead of origin, tag unused),
+tags, pushes, and lets GoReleaser publish both the GitHub release and the tap
+formula. `TAP_GITHUB_TOKEN` is only needed to push to the tap; the script falls
+back to the keychain or the credential git already stores. The same flow can run
+in GitHub Actions by pushing a tag or dispatching the **release** workflow.
+
+Verify the artifacts without publishing:
+
+```sh
+make snapshot
+```
+
+The complete checklist, credentials model, failure recovery, and the `brews`
+deprecation note live in [RELEASING.md](RELEASING.md).
+
 ## How it works
 
 ```
@@ -192,6 +236,7 @@ still in progress.
 | Config validation, doctor, safe editing, host scan | ✅ |
 | Deploy engine, health waits, rollback, output pane | ✅ |
 | Headless status / validate / doctor / fmt / edit | ✅ |
+| Releases: GoReleaser → GitHub + Homebrew tap + go install | ✅ configured |
 | SFTP browser | List and download ✅, upload/rename/delete planned |
 | Run history | JSONL + Activity card ✅, SQLite planned |
 | Desktop notifications | Terminal bell ✅, native popups planned |

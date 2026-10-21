@@ -11,7 +11,7 @@
 # Usage:
 #   ./scripts/release.sh                   # patch bump from the last tag
 #   ./scripts/release.sh minor             # or major|minor|patch
-#   ./scripts/release.sh 0.2.0             # an explicit version
+#   ./scripts/release.sh 0.1.0             # an explicit version
 #   ./scripts/release.sh --dry-run         # show what would happen
 #   ./scripts/release.sh --store-token     # optional: save a token explicitly
 #
@@ -27,6 +27,10 @@
 #   1. TAP_GITHUB_TOKEN in the environment
 #   2. a token saved with --store-token, in the macOS keychain
 #   3. the credential git already stores for github.com
+#
+# Any of them must be able to push to the tap repository. For (3) that is the
+# same credential `git push` uses, so if `git push origin main` works, this
+# works.
 
 set -euo pipefail
 
@@ -47,10 +51,16 @@ usage() {
 	cat <<'EOF'
 Release wmdep, updating the Homebrew tap in the same pass.
 
+This is the local path: the token lives in your environment or your macOS
+keychain and is never uploaded anywhere. If you would rather not hold a token
+on this machine at all, use the GitHub Actions workflow instead
+(.github/workflows/release.yml) and set TAP_GITHUB_TOKEN as a repository
+secret there.
+
 Usage:
   ./scripts/release.sh                   # patch bump from the last tag
   ./scripts/release.sh minor             # major | minor | patch
-  ./scripts/release.sh 0.2.0             # an explicit version
+  ./scripts/release.sh 0.1.0             # an explicit version
   ./scripts/release.sh --dry-run         # print the plan and stop
   ./scripts/release.sh --store-token     # save a token in the keychain
 

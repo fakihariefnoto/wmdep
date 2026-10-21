@@ -10,30 +10,6 @@ git tag v0.1.0  ──▶  goreleaser  ──▶  GitHub release (archives + che
                                   ──▶  go install github.com/fakihariefnoto/wmdep@v0.1.0
 ```
 
-One command, from a clean checkout of `main`:
-
-```sh
-make release V=minor      # or V=patch, V=major, V=0.2.0
-```
-
-That runs the test suite, tags, pushes the tag, and hands over to GoReleaser.
-
-## The first release, and the one thing that must exist first
-
-The repository exists and `main` tracks `origin`. Before the first tag:
-
-1. Confirm the tap has a `Formula/` directory (it already does for the other
-   projects in this account).
-2. Add `TAP_GITHUB_TOKEN` as a repository secret for the Actions workflow.
-3. Run the release from a clean checkout of `main`:
-
-```sh
-make release V=0.1.0        # the first tag comes from the script, not a file
-```
-
-GoReleaser writes `Formula/wmdep.rb` through the API, so a local tap clone is
-not needed.
-
 ## Credentials
 
 Publishing needs a credential that can create a release on `wmdep` and push to
@@ -44,7 +20,7 @@ access token has to exist.
 The script resolves one in this order:
 
 1. `TAP_GITHUB_TOKEN` in the environment
-2. a token saved with `make token-store`, in the macOS keychain
+2. a token saved with `--store-token`, in the macOS keychain
 3. **the credential git already stores for github.com** — the same one `git
    push` uses
 
@@ -54,11 +30,33 @@ Check what you have:
 printf 'protocol=https\nhost=github.com\n\n' | git credential fill
 ```
 
-If that prints a `password=`, releases work as-is. If it prints nothing, either
-`make token-store` (a fine-grained PAT with **Contents: read and write** on
-`homebrew-tap` and `wmdep`) or export `TAP_GITHUB_TOKEN` for one shell.
+If that prints a password, you are done. If it does not, either push something
+once (git will offer to store a credential), or create a fine-grained PAT with
+**Contents: read and write** on `fakihariefnoto/homebrew-tap` and pass it through
+one of the first two steps.
 
-## What the script checks before it does anything
+### Locally
+
+The version comes from the highest `v*` tag, not from a file, so the tag is the
+single source of truth and cannot drift from what was published.
+
+```sh
+make release --dry-run               # next patch, print the plan and stop
+make release                         # next patch: 0.1.0 -> 0.1.1
+make release V=minor                 # 0.2.0
+make release V=major                 # 1.0.0
+make release V=0.2.3                 # exactly that
+```
+
+With no tags at all the first release is `0.1.0`, not `0.1.1`: a tool that has
+never been published should not look like it had a patch. A version that is not
+newer than the last tag is refused, and so is one whose tag already exists, so a
+version can never go backwards or collide.
+
+The tag is read from the remote as well as the local repository, because a
+release can be published from another machine.
+
+The script refuses to run when it would produce a half-finished release:
 
 | Check | Why |
 |---|---|
@@ -69,14 +67,9 @@ If that prints a `password=`, releases work as-is. If it prints nothing, either
 | token present | otherwise goreleaser fails after the tag is already pushed |
 
 `TAP_GITHUB_TOKEN` in the environment overrides everything, which is useful in
-CI. GoReleaser commits the formula through the API, so a stale local clone of the
-tap cannot disagree with what gets published.
-
-Plan a release without doing it:
-
-```sh
-./scripts/release.sh --dry-run
-```
+CI or a one-off shell. The tap clone in `~/Projects/dist/...` is not used by the
+release: goreleaser commits the formula through the API, so a stale local clone
+cannot disagree with what gets published.
 
 ### In GitHub Actions, nothing on your machine
 
@@ -84,10 +77,21 @@ Add the PAT as a repository secret named `TAP_GITHUB_TOKEN`, then either push a
 tag or run the **release** workflow manually with the tag as input. The workflow
 runs the test suite first and refuses to publish if it fails.
 
-Repository secrets are not readable by anyone, including you: once saved they are
-encrypted, shown as a name, and GitHub redacts them from logs. The real trust
-boundary is *who can write to the repository*, which is why the PAT should be
-fine-grained and scoped to the single tap repository.
+### Is a secret safe in a public repository?
+
+Yes. Repository secrets are not readable — by anyone, including you. Once saved
+they are encrypted, shown only as a name, and cannot be read back through the UI
+or the API. GitHub redacts them from logs, and workflows triggered by a fork's
+pull request do not receive them at all.
+
+The real trust boundary is not public visibility, it is **who can write to the
+repository**: anyone able to merge a workflow file can add a step that prints a
+secret. That is why the PAT should be fine-grained and scoped to the single tap
+repository — if it leaked, the worst case is someone pushing to your tap, not
+access to your account.
+
+If you would rather hold no token in GitHub at all, use the local path; the
+workflow is optional.
 
 ## What gets built
 
@@ -96,16 +100,27 @@ fine-grained and scoped to the single tap repository.
 | targets | darwin and linux, amd64 and arm64 |
 | archive | `tar.gz`, with `LICENSE` and `README.md` beside the binary |
 | cgo | disabled, so one machine cross-compiles everything |
-| version | injected with `-ldflags -X main.version/commit/date` |
+| version | injected with `-ldflags -X .../internal/cli.Version/Commit/Date` |
 | checksums | `checksums.txt` per release |
 
-Windows is not built. The terminal handling and the credential path have never
-been exercised there, so it is not advertised rather than shipped untested (see
-`docs/ROADMAP.md` M7).
+Windows is not built. The terminal and keyring paths differ there and have
+never been exercised, so it is not advertised rather than shipped untested.
 
 Archives deliberately have no wrapping directory: the formula does
-`bin.install "wmdep"` and expects the binary at the archive root, matching the
-other formulae in the same tap.
+`bin.install "wmdep"` and expects the binary at the archive root, matching how
+the other formulae in the tap use the same layout.
+
+## A note on `goreleaser check`
+
+It exits non-zero:
+
+```
+DEPRECATED: brews should not be used anymore
+```
+
+That is deliberate. `brews` was superseded by `homebrew_casks`, but casks are
+macOS-only and the formula here also serves the Linux archives. The warning is
+expected until the tap either splits into a cask and a formula or drops Linux.
 
 ## Verifying a release without publishing
 
@@ -114,7 +129,7 @@ make snapshot     # goreleaser release --snapshot --clean --skip=publish
 ```
 
 Builds the archives and the formula into `dist/` and publishes nothing. This is
-how the release configuration is checked before the first tag: four binaries,
+how the release configuration was checked before the first tag: four binaries,
 four archives, a formula with both `on_macos` and `on_linux` blocks, and the
 extracted binary reporting its injected version.
 
@@ -126,14 +141,14 @@ The tag is the problem, not the workflow. Delete it and start again:
 git tag -d v0.1.0 && git push origin :refs/tags/v0.1.0
 ```
 
-If the formula was already pushed to the tap, revert that commit there too, or
-the two will disagree about what `v0.1.0` is.
+Then re-run. If the formula was already pushed to the tap, revert that commit in
+the tap repository too, or the two will disagree about what `v0.1.0` is.
 
 ## Pre-release checklist
 
 ```sh
-make check                  # gofmt, vet, lint, tests
-make snapshot               # confirm the artifacts build
-git status                  # clean
+make check          # gofmt, go vet, tests
+make snapshot       # confirm the artifacts build
+git status          # clean
 git log origin/main..HEAD   # nothing unpushed
 ```
