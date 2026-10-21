@@ -14,15 +14,16 @@ import (
 // Palette. Truecolor hex is used so state colors are distinct; lipgloss
 // downgrades them for 256/16-color terminals. Light mode gets darker variants.
 var (
-	colAccent  = lipgloss.Color("#7D56F4") // violet
-	colAccent2 = lipgloss.Color("#FF5FAF") // pink
-	colDim     = lipgloss.Color("#8A8FA3")
-	colFaint   = lipgloss.Color("#565B6E")
-	colOK      = lipgloss.Color("#3DDC97")
-	colWarn    = lipgloss.Color("#FFB454")
-	colErr     = lipgloss.Color("#FF5C5C")
-	colText    = lipgloss.Color("#E6E6F0")
-	colCardBG  = lipgloss.Color("#1A1C26")
+	colAccent   = lipgloss.Color("#2563EB") // electric blue
+	colAccent2  = lipgloss.Color("#22D3EE") // cyan
+	colDim      = lipgloss.Color("#94A3C8")
+	colFaint    = lipgloss.Color("#5B6B8C")
+	colOK       = lipgloss.Color("#22C55E")
+	colWarn     = lipgloss.Color("#F59E0B")
+	colErr      = lipgloss.Color("#EF4444")
+	colText     = lipgloss.Color("#E8EEFF")
+	colSurface  = lipgloss.Color("#141B30")
+	colSurface2 = lipgloss.Color("#1C2540")
 )
 
 // theme bundles every style the UI renders with. Keeping them in one struct
@@ -61,17 +62,17 @@ func newTheme(dark bool) theme {
 	accent, accent2 := colAccent, colAccent2
 	dim, faint, text := colDim, colFaint, colText
 	ok, warn, errc := colOK, colWarn, colErr
-	cardBG := colCardBG
+	surface := colSurface
 	if !dark {
-		accent = lipgloss.Color("#5B3BC4")
-		accent2 = lipgloss.Color("#C2247A")
-		dim = lipgloss.Color("#586074")
-		faint = lipgloss.Color("#9AA0B0")
-		text = lipgloss.Color("#1B1D24")
-		ok = lipgloss.Color("#1F9D63")
-		warn = lipgloss.Color("#B36A00")
-		errc = lipgloss.Color("#C62B2B")
-		cardBG = lipgloss.Color("#F2F3F7")
+		accent = lipgloss.Color("#1D4ED8")
+		accent2 = lipgloss.Color("#0E7490")
+		dim = lipgloss.Color("#4B5563")
+		faint = lipgloss.Color("#9CA3AF")
+		text = lipgloss.Color("#0B1020")
+		ok = lipgloss.Color("#15803D")
+		warn = lipgloss.Color("#B45309")
+		errc = lipgloss.Color("#B91C1C")
+		surface = lipgloss.Color("#EEF2FF")
 	}
 
 	t.title = lipgloss.NewStyle().Bold(true).Foreground(accent2)
@@ -98,7 +99,7 @@ func newTheme(dark bool) theme {
 	t.warn = lipgloss.NewStyle().Foreground(warn)
 	t.err = lipgloss.NewStyle().Foreground(errc)
 	t.unknown = lipgloss.NewStyle().Foreground(faint)
-	t.cardBG = lipgloss.NewStyle().Background(cardBG)
+	t.cardBG = lipgloss.NewStyle().Background(surface)
 
 	t.key = lipgloss.NewStyle().Foreground(accent2)
 	t.keyDesc = lipgloss.NewStyle().Foreground(dim)

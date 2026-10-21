@@ -207,7 +207,7 @@ func (m *Model) hostBar(h hostRef, focused bool) string {
 	th := m.th
 	host, ok := m.bundle.Hosts[h.id]
 	if !ok {
-		return m.card(h.id, []string{th.err.Render("unknown host")}, m.width, 4, focused, lipgloss.Color("#3A4A78"))
+		return m.card(h.id, []string{th.err.Render("unknown host")}, m.width, 4, focused, lipgloss.Color("#155E75"))
 	}
 	apps := m.appsForHost(h)
 	var cpuSum float64
@@ -249,7 +249,7 @@ func (m *Model) hostBar(h hostRef, focused bool) string {
 	if issues > 0 {
 		line += "   " + th.warn.Render(itoa(issues)+" need attention")
 	}
-	return m.card("", []string{line}, m.width, 3, focused, lipgloss.Color("#3A4A78"))
+	return m.card("", []string{line}, m.width, 3, focused, lipgloss.Color("#155E75"))
 }
 
 // appCard is one service card inside a host section.
@@ -276,7 +276,7 @@ func (m *Model) appCard(a app.App, w int, selected bool) string {
 		th.dim.Render("CPU "+pct(st.CPU)) + "   " + th.dim.Render("MEM "+humanBytes(st.MemBytes)),
 		th.faint.Render(pipeline),
 	}
-	return m.card(a.ID, lines, w, 6, selected, lipgloss.Color("#2F6FB5"))
+	return m.card(a.ID, lines, w, 6, selected, lipgloss.Color("#1E40AF"))
 }
 
 // flatten expands multi-line card strings into individual lines before clip.
@@ -292,12 +292,12 @@ func flatten(lines []string) []string {
 // obvious effect.
 func (m *Model) hostTabs() string {
 	active := lipgloss.NewStyle().Bold(true).
-		Foreground(lipgloss.Color("#161821")).
-		Background(lipgloss.Color("#8B7BFF")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color("#2563EB")).
 		Padding(0, 1)
 	idle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#C9CEE0")).
-		Background(lipgloss.Color("#2B2F42")).
+		Foreground(lipgloss.Color("#94A3C8")).
+		Background(lipgloss.Color("#1C2540")).
 		Padding(0, 1)
 
 	var parts []string
@@ -362,7 +362,7 @@ func (m *Model) hostDetail(h hostRef) string {
 	if issues > 0 {
 		line += "   " + th.warn.Render(itoa(issues)+" need attention")
 	}
-	return m.card("", []string{line}, m.width, 3, false, lipgloss.Color("#3A4A78"))
+	return m.card("", []string{line}, m.width, 3, false, lipgloss.Color("#155E75"))
 }
 
 // serviceRow is one selectable deployment inside the host.
@@ -396,7 +396,7 @@ func (m *Model) serviceRow(a app.App, selected bool) string {
 		sel := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#3D4B7A")).
+			Background(lipgloss.Color("#1D4ED8")).
 			Width(m.width)
 		return sel.Render("▸ " + strings.TrimPrefix(plain, "  "))
 	}
@@ -422,12 +422,12 @@ func (m *Model) navBar() string {
 		{"5 Settings", screenSettings},
 	}
 	active := lipgloss.NewStyle().Bold(true).
-		Foreground(lipgloss.Color("#161821")).
-		Background(lipgloss.Color("#FF7CC0")).
+		Foreground(lipgloss.Color("#04121C")).
+		Background(lipgloss.Color("#22D3EE")).
 		Padding(0, 1)
 	idle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#C9CEE0")).
-		Background(lipgloss.Color("#2B2F42")).
+		Foreground(lipgloss.Color("#94A3C8")).
+		Background(lipgloss.Color("#1C2540")).
 		Padding(0, 1)
 
 	var parts []string
@@ -500,7 +500,7 @@ func (m *Model) fleetCard() string {
 		th.dim.Render("MEM "+humanBytes(mem)) + "   " +
 		th.dim.Render(itoa(len(m.bundle.Hosts))+" hosts") + "   " +
 		th.faint.Render(itoa(down)+" unreachable")
-	return m.card("fleet", []string{line1, line2}, m.width, 5, false, lipgloss.Color("#4B3FB8"))
+	return m.card("fleet", []string{line1, line2}, m.width, 5, false, lipgloss.Color("#1E3A8A"))
 }
 
 func (m *Model) dashHeader() string { return "" }

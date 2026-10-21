@@ -59,9 +59,9 @@ func (m *Model) splashView() string {
 	}
 	logoLeft := max(0, (m.width-logoW)/2)
 
-	gradient := []string{"#7D56F4", "#9557F0", "#B25AE8", "#D05CDF", "#EA5ED4", "#FF5FAF"}
+	gradient := []string{"#1E3A8A", "#1E40AF", "#1D4ED8", "#2563EB", "#0EA5E9", "#22D3EE"}
 	if !th.dark {
-		gradient = []string{"#4B2FA8", "#6536B8", "#7C3EC4", "#9346CE", "#A94ED6", "#C2247A"}
+		gradient = []string{"#1E3A8A", "#1D4ED8", "#2563EB", "#0284C7", "#0891B2", "#0E7490"}
 	}
 	var art []string
 	for i, l := range wordmark {

@@ -205,6 +205,15 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.WindowTitle = "wmdep — watch my deployment"
+	// Paint the terminal itself: a midnight canvas rather than whatever the
+	// user's terminal background happens to be.
+	if m.th.dark {
+		v.BackgroundColor = lipgloss.Color("#0B1020")
+		v.ForegroundColor = lipgloss.Color("#E8EEFF")
+	} else {
+		v.BackgroundColor = lipgloss.Color("#F5F7FF")
+		v.ForegroundColor = lipgloss.Color("#0B1020")
+	}
 	return v
 }
 

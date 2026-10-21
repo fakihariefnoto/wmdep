@@ -53,7 +53,7 @@ func (m *Model) serviceView() string {
 	if a.Health != nil && a.Health.Kind != app.HealthNone {
 		extra += th.faint.Render("   health " + healthSummary(a.Health))
 	}
-	lines = append(lines, m.card("status", []string{statusLine, target, extra}, m.width, 6, true, lipgloss.Color("#2F6FB5")))
+	lines = append(lines, m.card("status", []string{statusLine, target, extra}, m.width, 6, true, lipgloss.Color("#1E40AF")))
 
 	actions := th.dim.Render("r restart · x start/stop · u reload · d deploy · e edit · F files · f follow · esc back")
 	lines = append(lines, actions)
