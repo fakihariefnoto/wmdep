@@ -317,6 +317,76 @@ steps:
   - run:   { remote: "systemctl restart web" }
 ```
 
+### Where the binary is built
+
+This is about **your applications**. wmdep itself is distributed separately as a
+normal Go release (GitHub archives, Homebrew, `go install`); it is never built
+on your servers.
+
+Pipelines support two artifact models, and they can be mixed in one pipeline:
+
+| | Build locally, upload | Build on the server |
+|---|---|---|
+| Steps | `build.local` → `upload` → `run` | `pull` → `build.remote` → `run` |
+| Needs on laptop | compiler/toolchain, SFTP access | only SSH |
+| Needs on server | a shell | git + toolchain, writable checkout |
+| Artifact | travels over SFTP | stays on the server |
+| Reproducibility | high: one artifact, deployed everywhere | depends on server state and installed versions |
+| OS/arch | you must build for the **server's** platform | native |
+| Speed | build once + upload time | build time on every server |
+
+**Local build + upload** is the default for compiled services:
+
+```yaml
+steps:
+  - build:  { local: "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/api ./cmd/api" }
+  - upload: { local: dist/api, remote: /srv/api/api.new, mode: "0755" }
+  - run:    { remote: "mv /srv/api/api.new /srv/api/api && systemctl restart api" }
+```
+
+- `build.local` runs with `sh -c` on the machine running wmdep, in wmdep's
+  working directory. Relative paths such as `dist/api` resolve there.
+- wmdep does **not** detect the server's OS/architecture. Set `GOOS`/`GOARCH`
+  (or equivalent) yourself; otherwise you can upload a binary the server cannot
+  execute.
+- `upload` writes to `<remote>.wmdep-tmp`, applies the mode, then renames over
+  the target. A dropped connection cannot leave a half-written file at the
+  final path.
+- Copying is not activating. The `run` step is what moves the file into place
+  and restarts the service.
+- The artifact is not stored anywhere after the run. If you need history, keep
+  versioned filenames or a `.prev` copy in the pipeline.
+
+**Build on the server** is the default for interpreted services:
+
+```yaml
+steps:
+  - pull:  { remote: /srv/web, branch: main }
+  - build: { remote: /srv/web, cmd: "npm ci && npm run build" }
+  - run:   { remote: "systemctl restart web" }
+```
+
+- `pull` runs `git fetch` and then `git reset --hard origin/<branch>` in the
+  checkout. **Local changes on the server in that directory are discarded.**
+  Use `commit:` to check out a specific revision instead of a branch.
+- `build.remote` runs `cd <remote> && <cmd>` on the server.
+- The server needs the full toolchain and dependency cache; builds are usually
+  slower and can drift if the server's runtime is not pinned.
+
+**Recommendation:** build compiled binaries locally (cross-compiled), and build
+interpreted apps on the server. A pipeline can do both: upload a compiled
+sidecar, then pull and build the frontend.
+
+### What wmdep is not
+
+- **Not an artifact registry.** It moves a file from A to B during a deploy; it
+  does not store, version, or serve artifacts.
+- **Not a build orchestrator.** There is no build matrix, cache, or dependency
+  resolution. A `build` step is exactly the command you write.
+- **Not a scheduler.** Deploys run for one deployment at a time, from the TUI.
+  A headless `wmdep deploy` command (for CI) is on the roadmap; today CI can
+  use `wmdep status` and `wmdep config validate`, but not trigger deploys.
+
 ### Rollback
 
 If any step fails, wmdep runs the `rollback` steps in order and reports the
