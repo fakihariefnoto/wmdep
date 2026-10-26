@@ -30,13 +30,9 @@ func newConfigValidateCmd(o *opts) *cobra.Command {
 			"problems with file:line locations. Exits non-zero when anything is wrong,\n" +
 			"so it can gate a commit or a CI job.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			dir := o.dir
-			if dir == "" {
-				d, err := config.DefaultDir()
-				if err != nil {
-					return err
-				}
-				dir = d
+			dir, err := config.ResolveDir(o.dir)
+			if err != nil {
+				return err
 			}
 
 			b, diags := config.Load(dir, config.Options{OnlyEnv: o.env, Strict: strict})
@@ -118,18 +114,21 @@ func newConfigShowCmd(o *opts) *cobra.Command {
 }
 
 func newConfigInitCmd(o *opts) *cobra.Command {
-	var force bool
+	var force, repo bool
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Create a starter config directory",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			dir := o.dir
-			if dir == "" {
-				d, err := config.DefaultDir()
-				if err != nil {
-					return err
+			dir, err := config.ResolveDir(o.dir)
+			if err != nil {
+				return err
+			}
+			if repo {
+				root, ok := config.RepoRoot()
+				if !ok {
+					return fmt.Errorf("--repo: not inside a git repository")
 				}
-				dir = d
+				dir = filepath.Join(root, ".wmdep")
 			}
 			created, err := scaffold(dir, force)
 			if err != nil {
@@ -149,6 +148,7 @@ func newConfigInitCmd(o *opts) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite existing files")
+	cmd.Flags().BoolVar(&repo, "repo", false, "write <git-root>/.wmdep instead of the user config")
 	return cmd
 }
 

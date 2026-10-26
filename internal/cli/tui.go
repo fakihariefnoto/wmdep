@@ -22,13 +22,9 @@ import (
 // loadBundle resolves flags into a loaded config, reporting diagnostics the way
 // an operator wants to read them: warnings first, then errors, then a summary.
 func loadBundle(o *opts) (*config.Bundle, error) {
-	dir := o.dir
-	if dir == "" {
-		d, err := config.DefaultDir()
-		if err != nil {
-			return nil, err
-		}
-		dir = d
+	dir, err := config.ResolveDir(o.dir)
+	if err != nil {
+		return nil, err
 	}
 	b, diags := config.Load(dir, config.Options{OnlyEnv: o.env})
 

@@ -71,8 +71,9 @@ type Bundle struct {
 	// They are reported but do not block startup.
 	Warnings []Diag
 
-	lines  map[string]map[string]int // file -> yaml path -> line
-	stamps map[string]fileStamp      // file -> content stamp at load
+	lines     map[string]map[string]int // file -> yaml path -> line
+	stamps    map[string]fileStamp      // file -> content stamp at load
+	templated map[string]bool           // file contains ${...} placeholders
 }
 
 // fileStamp is what the writer compares before overwriting a file, so an
@@ -99,6 +100,9 @@ func (b *Bundle) HostsOf(env string) []app.Host {
 	}
 	return out
 }
+
+// Templated reports whether a file uses ${...} expansion.
+func (b *Bundle) Templated(path string) bool { return b.templated[path] }
 
 // EnvNames returns loaded environment names in load order.
 func (b *Bundle) EnvNames() []string {
@@ -146,6 +150,7 @@ func Load(dir string, opts Options) (*Bundle, []Diag) {
 		Pipelines: map[string]Pipeline{},
 		lines:     map[string]map[string]int{},
 		stamps:    map[string]fileStamp{},
+		templated: map[string]bool{},
 	}
 	l := LayoutFor(dir)
 
@@ -235,6 +240,16 @@ func (b *Bundle) read(path string, into any, errs *[]Diag, required bool) (*yaml
 		st.modTime = info.ModTime()
 	}
 	b.stamps[path] = st
+
+	expanded, template, expandDiags := expandEnv(path, raw)
+	if len(expandDiags) > 0 {
+		*errs = append(*errs, expandDiags...)
+		return nil, false
+	}
+	if template {
+		b.templated[path] = true
+	}
+	raw = expanded
 
 	var root yaml.Node
 	if err := yaml.Unmarshal(raw, &root); err != nil {

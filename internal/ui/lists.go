@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -416,7 +417,12 @@ func (m *Model) startDuplicate() (tea.Model, tea.Cmd) {
 	if len(apps) == 0 || m.list.cursor >= len(apps) {
 		return m, nil
 	}
-	m.form = duplicateDeploymentForm(m.bundle, apps[m.list.cursor])
+	a := apps[m.list.cursor]
+	if m.envFileTemplated(a.Environment) {
+		m.setFlash("environments/" + a.Environment + ".yaml uses ${…} templates — edit it by hand")
+		return m, nil
+	}
+	m.form = duplicateDeploymentForm(m.bundle, a)
 	m.screen = screenEditor
 	return m, nil
 }
@@ -610,4 +616,15 @@ func (m *Model) applyTemplate() {
 		f.set("provider", "docker")
 		f.set("target", id)
 	}
+}
+
+// envFileTemplated reports whether an environment file uses ${...} expansion.
+// Editing it from a form would bake resolved values into the repo.
+func (m *Model) envFileTemplated(env string) bool {
+	path := filepath.Join(config.LayoutFor(m.bundle.Dir).Environments, env+".yaml")
+	return m.templatedFile(path)
+}
+
+func (m *Model) templatedFile(path string) bool {
+	return m.bundle.Templated(path)
 }

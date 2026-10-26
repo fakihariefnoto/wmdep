@@ -2,10 +2,13 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fakihariefnoto/wmdep/internal/config"
 )
 
 // run executes the command tree with args and returns stdout, stderr, and the
@@ -177,4 +180,95 @@ func TestScaffoldMatchesLoader(t *testing.T) {
 	if errOut != "" && !strings.Contains(errOut, "key file") {
 		t.Errorf("unexpected warning from the starter config:\n%s", errOut)
 	}
+}
+
+func TestDeployDryRun(t *testing.T) {
+	out, errOut, err := run(t, "../config/testdata/good", "deploy", "api", "--env", "prod", "--dry-run")
+	if err != nil {
+		t.Fatalf("deploy --dry-run: %v\n%s", err, errOut)
+	}
+	for _, want := range []string{"deploy api", "pipeline api-prod", "build", "upload", "run", "wait", "dry run"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestDeployProdNeedsYes(t *testing.T) {
+	_, _, err := run(t, "../config/testdata/good", "deploy", "api", "--env", "prod")
+	if err == nil {
+		t.Fatal("expected prod to require --yes")
+	}
+	var ee exitError
+	if !errors.As(err, &ee) || ee.code != 2 {
+		t.Fatalf("err = %v, want exitError{2}", err)
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Errorf("error should mention --yes: %v", err)
+	}
+}
+
+func TestDeployMissingApp(t *testing.T) {
+	_, _, err := run(t, "../config/testdata/good", "deploy", "nope")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	var ee exitError
+	if !errors.As(err, &ee) || ee.code != 2 {
+		t.Fatalf("err = %v, want exitError{2}", err)
+	}
+}
+
+func TestConfigInitRepo(t *testing.T) {
+	isolateHome(t)
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+
+	out, errOut, err := run(t, "", "config", "init", "--repo")
+	if err != nil {
+		t.Fatalf("init --repo: %v\n%s", err, errOut)
+	}
+	if !strings.Contains(out, ".wmdep") {
+		t.Errorf("output should name .wmdep:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".wmdep", "config.yaml")); err != nil {
+		t.Errorf("expected .wmdep/config.yaml: %v", err)
+	}
+}
+
+func TestCommandsDiscoverRepoConfig(t *testing.T) {
+	isolateHome(t)
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(filepath.Join(repo, ".wmdep"), os.DirFS("../config/testdata/good")); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(repo, "cmd", "api")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(sub)
+
+	out, errOut, err := run(t, "", "deploy", "api", "--env", "prod", "--dry-run")
+	if err != nil {
+		t.Fatalf("deploy --dry-run from subdir: %v\n%s", err, errOut)
+	}
+	if !strings.Contains(out, "pipeline api-prod") {
+		t.Errorf("expected the repo config to be used:\n%s", out)
+	}
+}
+
+// isolateHome keeps commands that fall back to the user config out of the real
+// home directory during tests.
+func isolateHome(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv(config.DirEnv, "")
 }

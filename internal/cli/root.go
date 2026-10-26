@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -31,6 +32,11 @@ func Execute() int {
 	root := newRootCmd(o)
 
 	if err := root.Execute(); err != nil {
+		var ee exitError
+		if errors.As(err, &ee) {
+			fmt.Fprintln(os.Stderr, "wmdep: "+ee.err.Error())
+			return ee.code
+		}
 		fmt.Fprintln(os.Stderr, "wmdep: "+err.Error())
 		return 1
 	}
@@ -44,8 +50,8 @@ func newRootCmd(o *opts) *cobra.Command {
 		Use:   "wmdep",
 		Short: "Watch My Deployment — operate services across many servers over SSH",
 		Long: "wmdep is a terminal cockpit for services spread across many servers.\n\n" +
-			"It reads a directory of YAML (see `wmdep config init`), shows every app on\n" +
-			"every host, streams logs, and runs deploys over SSH and SFTP.",
+			"It reads YAML from a repo-local .wmdep/ or ~/.config/wmdep, shows every\n" +
+			"deployment, streams logs, and runs deploys over SSH and SFTP.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -54,7 +60,7 @@ func newRootCmd(o *opts) *cobra.Command {
 	}
 
 	pf := root.PersistentFlags()
-	pf.StringVarP(&o.dir, "config", "c", "", "config directory (default $WMDEP_CONFIG_DIR or ~/.config/wmdep)")
+	pf.StringVarP(&o.dir, "config", "c", "", "config directory (default: nearest .wmdep/, $WMDEP_CONFIG_DIR, or ~/.config/wmdep)")
 	pf.StringVarP(&o.env, "env", "e", "", "limit to one environment")
 	pf.BoolVar(&o.demo, "demo", false, "use the in-memory provider instead of SSH (no connections)")
 	pf.BoolVar(&o.noSplash, "no-splash", false, "skip the splash menu and start on the dashboard")
@@ -62,6 +68,7 @@ func newRootCmd(o *opts) *cobra.Command {
 
 	root.AddCommand(
 		newConfigCmd(o),
+		newDeployCmd(o),
 		newStatusCmd(o),
 		newAuthCmd(),
 		newVersionCmd(),

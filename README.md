@@ -83,7 +83,8 @@ make build
 ## Quick start
 
 ```sh
-wmdep config init       # writes a working config to ~/.config/wmdep
+wmdep config init       # ~/.config/wmdep, or .wmdep/ inside a repo
+wmdep config init --repo # explicitly write <git-root>/.wmdep
 wmdep config doctor     # checks keys, permissions, and layout
 wmdep config validate   # validates every file and reference
 wmdep status            # one-shot status table (no TUI)
@@ -147,15 +148,20 @@ apps:
     deploy: api-prod
 ```
 
+Repo-local config is picked up automatically from `.wmdep/` (nearest, stopping
+at the git root), and values can use `${VAR}` / `${VAR:-default}` /
+`${VAR:?message}` so the same files work on a laptop and in CI.
+
 **Full reference:** [docs/configuration.md](docs/configuration.md) — every field,
-provider, health check, pipeline step, validation rule, recipe, and
-troubleshooting entry.
+provider, health check, pipeline step, validation rule, headless deploy, recipe,
+and troubleshooting entry.
 
 ## Commands
 
 | Command | Description |
 |---|---|
 | `wmdep` | Open the TUI |
+| `wmdep deploy <app>` | Run a deployment's pipeline (headless; `--dry-run`, `--yes`) |
 | `wmdep status` | Poll every deployment once and print a table |
 | `wmdep config init` | Scaffold a starter config directory |
 | `wmdep config validate` | Validate files and cross-references (`--strict`) |
@@ -235,7 +241,7 @@ still in progress.
 | Dashboard, service view, logs, searchable lists | ✅ |
 | Config validation, doctor, safe editing, host scan | ✅ |
 | Deploy engine, health waits, rollback, output pane | ✅ |
-| Headless status / validate / doctor / fmt / edit | ✅ |
+| Headless status / deploy / validate / doctor / fmt / edit | ✅ |
 | Releases: GoReleaser → GitHub + Homebrew tap + go install | ✅ configured |
 | SFTP browser | List and download ✅, upload/rename/delete planned |
 | Run history | JSONL + Activity card ✅, SQLite planned |

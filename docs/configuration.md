@@ -25,8 +25,26 @@ wmdep looks for a config directory in this order:
 
 1. `--config <dir>` on the command line
 2. `$WMDEP_CONFIG_DIR`
-3. `$XDG_CONFIG_HOME/wmdep`
-4. `~/.config/wmdep`
+3. the nearest **`.wmdep/`** at or above the working directory (stopping at the
+   git root)
+4. `$XDG_CONFIG_HOME/wmdep`, else `~/.config/wmdep`
+
+A repository can therefore carry its own config and every command picks it up
+automatically:
+
+```
+my-service/
+├── .wmdep/
+│   ├── config.yaml
+│   ├── hosts.yaml
+│   ├── pipelines.yaml
+│   └── environments/prod.yaml
+└── src/…
+```
+
+Create it with `wmdep config init --repo`. A `.wmdep/` that exists but fails to
+load is a hard error; wmdep never falls back to the user config, because that
+could target the wrong hosts.
 
 A complete directory looks like this:
 
@@ -94,6 +112,32 @@ environments: [prod, staging]
 
 Environment files not listed are ignored. `--env <name>` further narrows a
 single run to one environment.
+
+### Environment variables in config
+
+Values can reference the environment, which keeps one repo config usable on a
+laptop and in CI:
+
+```yaml
+hosts:
+  web-1:
+    address: ${WEB1_HOST:?set WEB1_HOST}
+    user: ${DEPLOY_USER:-deploy}
+    auth: agent
+```
+
+- `${NAME}` → the value, or empty when unset
+- `${NAME:-default}` → the value, or `default` when unset/empty
+- `${NAME:?message}` → fail validation with `message` when unset/empty
+
+Only the braced form is expanded. `$NAME` and `$(command)` are left alone, so
+shell snippets in pipeline steps keep working. Write `$${NAME}` for a literal
+`${NAME}`.
+
+Expansion happens at read time; the writer always saves the raw placeholder.
+Files containing `${…}` are marked read-only in the form editors, so a save can
+never bake a resolved hostname into the repository. Edit those by hand or via
+`wmdep config edit`.
 
 ### ui
 
@@ -383,9 +427,9 @@ sidecar, then pull and build the frontend.
   does not store, version, or serve artifacts.
 - **Not a build orchestrator.** There is no build matrix, cache, or dependency
   resolution. A `build` step is exactly the command you write.
-- **Not a scheduler.** Deploys run for one deployment at a time, from the TUI.
-  A headless `wmdep deploy` command (for CI) is on the roadmap; today CI can
-  use `wmdep status` and `wmdep config validate`, but not trigger deploys.
+- **Not a scheduler.** `wmdep deploy` runs one deployment at a time, from the
+  TUI or the CLI. It does not coordinate a fleet-wide rollout or queue jobs
+  across machines.
 
 ### Rollback
 
@@ -402,6 +446,47 @@ use `git reset` for anything that matters.
 From the dashboard or service screen, `d` arms and a second `d` runs. The result
 appears in the deploy output pane and in the status bar; failures ring the
 terminal bell.
+
+### Headless deploys (Makefiles and CI)
+
+The same pipelines run without the TUI:
+
+```sh
+wmdep deploy api --env prod --dry-run   # print the plan
+wmdep deploy api --env prod --yes       # execute (prod requires --yes)
+```
+
+Exit codes: `0` success, `1` deploy failed, `2` usage or config error. A
+production deploy without `--yes` is refused, so CI cannot restart prod by
+accident.
+
+A Makefile is a thin wrapper; it is never the config format:
+
+```make
+ENV ?= staging
+APP ?= api
+
+deploy:
+	wmdep deploy $(APP) --env $(ENV) --yes
+
+check:
+	wmdep config validate --strict
+
+status:
+	wmdep status --env $(ENV)
+```
+
+GitHub Actions needs the SSH key and known_hosts, plus any `${…}` values:
+
+```yaml
+- run: wmdep config validate --strict
+- run: wmdep deploy api --env prod --yes
+  env:
+    WEB1_HOST: ${{ vars.WEB1_HOST }}
+```
+
+Deploys are serialised per host by the engine's step execution; two CI jobs
+targeting the same host should still be avoided.
 
 ---
 

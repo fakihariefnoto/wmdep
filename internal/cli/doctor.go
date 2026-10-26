@@ -20,13 +20,9 @@ func newConfigDoctorCmd(o *opts) *cobra.Command {
 		Use:   "doctor",
 		Short: "Check config, keys, and common setup problems",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			dir := o.dir
-			if dir == "" {
-				d, err := config.DefaultDir()
-				if err != nil {
-					return err
-				}
-				dir = d
+			dir, err := config.ResolveDir(o.dir)
+			if err != nil {
+				return err
 			}
 			b, diags := config.Load(dir, config.Options{OnlyEnv: o.env})
 
@@ -99,13 +95,9 @@ func newConfigFmtCmd(o *opts) *cobra.Command {
 		Use:   "fmt",
 		Short: "Normalise the YAML files without losing comments",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			dir := o.dir
-			if dir == "" {
-				d, err := config.DefaultDir()
-				if err != nil {
-					return err
-				}
-				dir = d
+			dir, err := config.ResolveDir(o.dir)
+			if err != nil {
+				return err
 			}
 			changed, err := config.FormatDir(dir)
 			if err != nil {
@@ -129,13 +121,9 @@ func newConfigEditCmd(o *opts) *cobra.Command {
 		Use:   "edit",
 		Short: "Open the config directory in $EDITOR and validate on exit",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			dir := o.dir
-			if dir == "" {
-				d, err := config.DefaultDir()
-				if err != nil {
-					return err
-				}
-				dir = d
+			dir, err := config.ResolveDir(o.dir)
+			if err != nil {
+				return err
 			}
 			editor := os.Getenv("VISUAL")
 			if editor == "" {
